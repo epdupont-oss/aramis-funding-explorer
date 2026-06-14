@@ -211,7 +211,9 @@ input[type=range].single::-webkit-slider-thumb {
 .kw-chip {
   background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
   padding: 2px 8px; font-size: 11px; color: var(--text-sec);
+  cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
+.kw-chip:hover { background: var(--primary-light); border-color: var(--primary-mid); color: var(--primary-dark); }
 .satw-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .satw-chip {
   border-radius: 10px; padding: 2px 8px; font-size: 11px; color: white;
@@ -968,6 +970,15 @@ function searchInstitution(name) {
   document.getElementById('search-input').value = name;
   appState.searchQuery = name;
   appState.page = 1;
+  switchTab('results');
+  render();
+}
+
+function searchKeyword(kw) {
+  document.getElementById('search-input').value = kw;
+  appState.searchQuery = kw;
+  appState.page = 1;
+  switchTab('results');
   render();
 }
 
@@ -982,7 +993,7 @@ function buildCard(row, idx) {
   const satws = row._satw;
   const expanded = expandedAbstracts.has(idx);
 
-  const kwHtml = kws.map(k => `<span class="kw-chip">${escHtml(k)}</span>`).join('');
+  const kwHtml = kws.map(k => `<span class="kw-chip" onclick="event.stopPropagation();searchKeyword('${escHtml(k)}')">${escHtml(k)}</span>`).join('');
   const satwHtml = satws.map(t => {
     const color = satwColorForTech(t);
     const warn = OVERHYPED_TECH.has(t) ? ' ⚠️' : '';
@@ -1058,7 +1069,7 @@ function openModal(idx) {
     ${row['Projekttitel italiano'] || row['Projekttitel italienisch'] ? `<div class="modal-section"><h3>Title (IT)</h3><p>${escHtml(row['Projekttitel italiano']||row['Projekttitel italienisch'])}</p></div>` : ''}
     ${row._hasAbstract ? `<div class="modal-section"><h3>Abstract (EN)</h3><p>${escHtml(row['abstract_en']||'')}</p></div>` : ''}
     ${row['Kurzbeschreibung'] ? `<div class="modal-section"><h3>Original abstract</h3><p>${escHtml(row['Kurzbeschreibung'])}</p></div>` : ''}
-    ${row._keywords.length ? `<div class="modal-section"><h3>Keywords</h3><div class="card-keywords">${row._keywords.map(k=>`<span class="kw-chip">${escHtml(k)}</span>`).join('')}</div></div>` : ''}
+    ${row._keywords.length ? `<div class="modal-section"><h3>Keywords</h3><div class="card-keywords">${row._keywords.map(k=>`<span class="kw-chip" onclick="closeModal();searchKeyword('${escHtml(k)}')">${escHtml(k)}</span>`).join('')}</div></div>` : ''}
     ${row._satw.length ? `<div class="modal-section"><h3>SATW Technologies</h3><div class="satw-chips">${row._satw.map(t=>`<span class="satw-chip" style="background:${satwColorForTech(t)};">${escHtml(t)}</span>`).join('')}</div></div>` : ''}
     ${row['Kontaktperson'] ? `<div class="modal-section"><h3>Contact / Institution</h3><p style="white-space:pre-line;font-size:12px;">${escHtml(row['Kontaktperson'])}</p></div>` : ''}
     ${row['NABS-Kategorie'] ? `<div class="modal-section"><h3>NABS Category</h3><p>${escHtml(row['NABS-Kategorie'])}</p></div>` : ''}
