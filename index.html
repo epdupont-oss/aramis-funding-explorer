@@ -6,6 +6,8 @@
 <title>ARAMIS Explorer — Swiss Public Research Funding</title>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css">
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
 <style>
 :root {
   --primary-dark: #1A3A5C;
@@ -306,6 +308,35 @@ table.satw-table tr.clickable:hover { background: var(--bg); cursor: pointer; }
 .satw-sample-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 @media (max-width: 900px) { .satw-sample-cards { grid-template-columns: 1fr; } }
 
+/* RESULTS TWO-COLUMN */
+.results-body { display: flex; gap: 20px; align-items: flex-start; }
+.results-main { flex: 1; min-width: 0; }
+.inst-panel {
+  width: 240px; flex-shrink: 0; background: white; border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px; position: sticky; top: 8px;
+}
+.inst-panel h3 { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--text-sec); margin-bottom: 10px; }
+.inst-item { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+.inst-item:last-child { border-bottom: none; }
+.inst-item:hover .inst-name { color: var(--primary-mid); }
+.inst-bar-wrap { flex: 1; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.inst-bar { height: 100%; background: var(--primary-mid); border-radius: 2px; }
+.inst-name { font-size: 12px; line-height: 1.3; color: var(--text); }
+.inst-count { font-size: 11px; color: var(--text-sec); white-space: nowrap; }
+@media (max-width: 1100px) { .inst-panel { display: none; } }
+
+/* MAP TAB */
+#map-container { height: 520px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+.map-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+.map-legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-sec); }
+.map-legend-dot { width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.2); }
+.canton-table { margin-top: 16px; background: white; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.canton-table table { width: 100%; border-collapse: collapse; }
+.canton-table th { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-sec); padding: 10px 14px; border-bottom: 2px solid var(--border); text-align: left; }
+.canton-table td { padding: 8px 14px; font-size: 13px; border-bottom: 1px solid var(--border); }
+.canton-table tr:last-child td { border-bottom: none; }
+.canton-table tr:hover td { background: var(--bg); }
+
 /* EMPTY STATE */
 .empty-state { text-align: center; padding: 60px 20px; }
 .empty-state h3 { font-size: 18px; color: var(--text-sec); margin-bottom: 8px; }
@@ -384,6 +415,7 @@ footer a { color: rgba(255,255,255,0.8); }
     <div class="mode-toggle">
       <button class="mode-btn active" id="mode-keyword" onclick="setMode('keyword')">Keyword</button>
       <button class="mode-btn" id="mode-ai" onclick="setMode('ai')">✨ AI</button>
+      <a href="https://console.mistral.ai/api-keys" target="_blank" style="font-size:11px;color:var(--text-sec);white-space:nowrap;text-decoration:underline;margin-left:4px;">Get free API key</a>
     </div>
   </div>
   <div id="search-hint" class="search-hint" style="display:none;"></div>
@@ -480,6 +512,7 @@ footer a { color: rgba(255,255,255,0.8); }
     <button class="tab-btn active" onclick="switchTab('results')">Results</button>
     <button class="tab-btn" onclick="switchTab('statistics')">Statistics</button>
     <button class="tab-btn" onclick="switchTab('satw')">SATW Foresight</button>
+    <button class="tab-btn" onclick="switchTab('map')">🗺 Map</button>
   </div>
 
   <!-- RESULTS TAB -->
@@ -494,8 +527,24 @@ footer a { color: rgba(255,255,255,0.8); }
         <option value="conf-desc">Confidence: high to low</option>
       </select>
     </div>
-    <div class="card-grid" id="card-grid"></div>
-    <div class="pagination" id="pagination"></div>
+    <div class="results-body">
+      <div class="results-main">
+        <div class="card-grid" id="card-grid"></div>
+        <div class="pagination" id="pagination"></div>
+      </div>
+      <div class="inst-panel">
+        <h3>Top institutions</h3>
+        <div id="inst-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAP TAB -->
+  <div class="tab-pane" id="tab-map">
+    <p style="font-size:13px;color:var(--text-sec);margin-bottom:12px;">Projects by canton, based on postal codes extracted from contact data (~40% of projects have location).</p>
+    <div id="map-container"></div>
+    <div class="map-legend" id="map-legend"></div>
+    <div class="canton-table" id="canton-table"></div>
   </div>
 
   <!-- STATISTICS TAB -->
@@ -560,7 +609,7 @@ footer a { color: rgba(255,255,255,0.8); }
 
 <script>
 // ─── CONFIG ────────────────────────────────────────────────────────────────
-const MISTRAL_API_KEY = "PASTE_YOUR_FREE_TIER_KEY_HERE";
+const MISTRAL_API_KEY = "pvckWV1JQS1Ts9PrAmVOffjxb6VykwIt";
 const PAGE_SIZE = 24;
 const EXCLUDED_KEYWORDS = new Set(['switzerland','industrial productivity','public health','international cooperation','research','development','project','analysis','study','management','system','process']);
 
@@ -889,11 +938,37 @@ function renderCards() {
   if (!filtered.length) {
     document.getElementById('card-grid').innerHTML = `<div class="empty-state" style="grid-column:1/-1"><h3>No projects found</h3><p>Try adjusting your filters or search query.</p></div>`;
     document.getElementById('pagination').innerHTML = '';
+    document.getElementById('inst-list').innerHTML = '';
     return;
   }
 
   document.getElementById('card-grid').innerHTML = page.map((row, i) => buildCard(row, start + i)).join('');
   renderPagination();
+  renderInstPanel();
+}
+
+// ─── TOP INSTITUTIONS PANEL ─────────────────────────────────────────────────
+function renderInstPanel() {
+  const counts = {};
+  filtered.forEach(r => { if (r._institution) counts[r._institution] = (counts[r._institution]||0) + 1; });
+  const top = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  if (!top.length) { document.getElementById('inst-list').innerHTML = '<p style="font-size:12px;color:var(--text-sec);">No institution data</p>'; return; }
+  const max = top[0][1];
+  document.getElementById('inst-list').innerHTML = top.map(([name, cnt]) => `
+    <div class="inst-item" onclick="searchInstitution('${name.replace(/'/g,"\\'")}')">
+      <div style="flex:1;min-width:0;">
+        <div class="inst-name">${escHtml(name)}</div>
+        <div class="inst-bar-wrap" style="margin-top:3px;"><div class="inst-bar" style="width:${Math.round(cnt/max*100)}%"></div></div>
+      </div>
+      <span class="inst-count">${cnt}</span>
+    </div>`).join('');
+}
+
+function searchInstitution(name) {
+  document.getElementById('search-input').value = name;
+  appState.searchQuery = name;
+  appState.page = 1;
+  render();
 }
 
 function buildCard(row, idx) {
@@ -1359,6 +1434,92 @@ function resetFilters() {
   render();
 }
 
+// ─── MAP ─────────────────────────────────────────────────────────────────────
+const CANTON_CENTROIDS = {
+  ZH:[47.41,8.65], BE:[46.95,7.44], LU:[47.05,8.30], UR:[46.88,8.63],
+  SZ:[47.02,8.65], OW:[46.88,8.25], NW:[46.93,8.38], GL:[46.98,9.07],
+  ZG:[47.17,8.52], FR:[46.80,7.15], SO:[47.33,7.63], BS:[47.56,7.59],
+  BL:[47.48,7.73], SH:[47.70,8.63], AR:[47.37,9.28], AI:[47.33,9.42],
+  SG:[47.22,9.27], GR:[46.67,9.57], AG:[47.39,8.07], TG:[47.57,9.00],
+  TI:[46.33,8.80], VD:[46.57,6.55], VS:[46.22,7.60], NE:[47.00,6.83],
+  GE:[46.20,6.15], JU:[47.37,7.13]
+};
+let leafletMap = null;
+let mapMarkers = [];
+
+function renderMap() {
+  // Count by canton from filtered set
+  const counts = {}, budgets = {};
+  filtered.forEach(r => {
+    if (r._canton) {
+      counts[r._canton] = (counts[r._canton]||0) + 1;
+      budgets[r._canton] = (budgets[r._canton]||0) + r._budget;
+    }
+  });
+  const maxCount = Math.max(...Object.values(counts), 1);
+
+  // Init map once
+  if (!leafletMap) {
+    leafletMap = L.map('map-container').setView([46.8, 8.2], 7);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 12
+    }).addTo(leafletMap);
+  }
+
+  // Clear old markers
+  mapMarkers.forEach(m => m.remove());
+  mapMarkers = [];
+
+  // Add circle markers per canton
+  Object.entries(CANTON_CENTROIDS).forEach(([canton, latlng]) => {
+    const cnt = counts[canton] || 0;
+    if (!cnt) return;
+    const ratio = cnt / maxCount;
+    const radius = 8 + ratio * 42;
+    const color = ratio > 0.6 ? '#1A3A5C' : ratio > 0.3 ? '#2E86C1' : '#85C1E9';
+    const marker = L.circleMarker(latlng, {
+      radius, color: 'white', weight: 1.5,
+      fillColor: color, fillOpacity: 0.85
+    }).bindTooltip(`<strong>${canton}</strong><br>${cnt.toLocaleString()} projects<br>${chfCompact(budgets[canton]||0)}`, {sticky:true})
+      .on('click', () => { toggleCanton(canton); renderCantonList(); render(); })
+      .addTo(leafletMap);
+    mapMarkers.push(marker);
+
+    // Label
+    const label = L.marker(latlng, {
+      icon: L.divIcon({ className:'', html:`<div style="font-size:10px;font-weight:700;color:white;text-shadow:0 1px 2px rgba(0,0,0,0.8);white-space:nowrap;">${canton}</div>`, iconAnchor:[10,6] })
+    }).addTo(leafletMap);
+    mapMarkers.push(label);
+  });
+
+  // Canton table
+  const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+  document.getElementById('canton-table').innerHTML = `
+    <table>
+      <thead><tr><th>Canton</th><th>Projects</th><th>Budget</th><th>% with location</th></tr></thead>
+      <tbody>${sorted.map(([c,n]) => `
+        <tr style="cursor:pointer;" onclick="toggleCanton('${c}');renderCantonList();render();">
+          <td><strong>${c}</strong></td>
+          <td>${n.toLocaleString()}</td>
+          <td>${chfCompact(budgets[c]||0)}</td>
+          <td>${((n/filtered.length)*100).toFixed(1)}%</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+
+  // Legend
+  document.getElementById('map-legend').innerHTML = `
+    <span style="font-size:12px;color:var(--text-sec);">Projects per canton:</span>
+    <span class="map-legend-item"><span class="map-legend-dot" style="background:#85C1E9;"></span>Low</span>
+    <span class="map-legend-item"><span class="map-legend-dot" style="background:#2E86C1;"></span>Medium</span>
+    <span class="map-legend-item"><span class="map-legend-dot" style="background:#1A3A5C;"></span>High</span>
+    <span style="font-size:12px;color:var(--text-sec);margin-left:8px;">Click a canton to filter · ${filtered.filter(r=>r._canton).length.toLocaleString()} of ${filtered.length.toLocaleString()} projects have location data</span>`;
+
+  // Force map to recalculate size (tab was hidden)
+  setTimeout(() => leafletMap.invalidateSize(), 50);
+}
+
 // ─── TAB SWITCHING ──────────────────────────────────────────────────────────
 let currentTab = 'results';
 function switchTab(tab) {
@@ -1366,9 +1527,10 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('tab-'+tab).classList.add('active');
-  document.querySelectorAll('.tab-btn').forEach(b=>{ if(b.textContent.toLowerCase().includes(tab==='satw'?'satw':tab)) b.classList.add('active'); });
+  document.querySelectorAll('.tab-btn').forEach(b=>{ if(b.textContent.toLowerCase().includes(tab==='satw'?'satw':tab==='map'?'map':tab)) b.classList.add('active'); });
   if (tab==='statistics') renderStatistics();
   if (tab==='satw') renderSatwTab();
+  if (tab==='map') renderMap();
 }
 
 // ─── URL HASH STATE ─────────────────────────────────────────────────────────
@@ -1424,6 +1586,7 @@ function render() {
   renderCards();
   if (currentTab === 'statistics') renderStatistics();
   if (currentTab === 'satw') renderSatwTab();
+  if (currentTab === 'map') renderMap();
   updateHash();
 }
 
