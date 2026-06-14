@@ -1,0 +1,1484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARAMIS Explorer — Swiss Public Research Funding</title>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --primary-dark: #1A3A5C;
+  --primary-mid: #2E86C1;
+  --primary-light: #E8F4FD;
+  --conf-high: #27AE60;
+  --conf-mid: #F39C12;
+  --conf-low: #E74C3C;
+  --bg: #F8F9FA;
+  --card-bg: #FFFFFF;
+  --border: #DEE2E6;
+  --text: #212529;
+  --text-sec: #6C757D;
+  --satw-digital: #3498DB;
+  --satw-energy: #27AE60;
+  --satw-manufacturing: #E67E22;
+  --satw-life: #9B59B6;
+  --satw-space: #1ABC9C;
+  --satw-none: #95A5A6;
+  --sidebar-w: 260px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+/* LOADING */
+#loading-screen {
+  position: fixed; inset: 0; background: var(--primary-dark);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  z-index: 9999; color: white;
+}
+#loading-screen h1 { font-size: 28px; margin-bottom: 12px; }
+#loading-screen p { color: rgba(255,255,255,0.7); margin-bottom: 32px; font-size: 16px; }
+.loader-bar { width: 320px; height: 6px; background: rgba(255,255,255,0.2); border-radius: 3px; overflow: hidden; }
+.loader-fill { height: 100%; background: var(--primary-mid); border-radius: 3px; width: 0%; transition: width 0.3s; }
+#load-status { margin-top: 12px; font-size: 13px; color: rgba(255,255,255,0.5); }
+
+/* HEADER */
+#app { display: none; flex-direction: column; min-height: 100vh; }
+header {
+  background: var(--primary-dark); color: white; padding: 16px 24px;
+  position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.header-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.header-title h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
+.header-title p { font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 2px; }
+.stat-cards { display: flex; gap: 12px; flex-wrap: wrap; }
+.stat-card {
+  background: rgba(255,255,255,0.1); border-radius: 8px; padding: 10px 16px;
+  text-align: center; min-width: 110px;
+}
+.stat-card .val { font-size: 20px; font-weight: 700; line-height: 1.1; }
+.stat-card .lbl { font-size: 11px; color: rgba(255,255,255,0.6); margin-top: 2px; }
+
+/* SEARCH BAR */
+#search-bar {
+  background: white; border-bottom: 1px solid var(--border); padding: 10px 24px;
+  position: sticky; top: 72px; z-index: 99; display: flex; flex-direction: column; gap: 8px;
+}
+.search-row { display: flex; gap: 8px; align-items: center; }
+#search-input {
+  flex: 1; border: 1.5px solid var(--border); border-radius: 8px; padding: 8px 14px;
+  font-size: 14px; outline: none; transition: border-color 0.2s;
+}
+#search-input:focus { border-color: var(--primary-mid); }
+.mode-toggle {
+  display: flex; background: var(--bg); border-radius: 20px; padding: 2px; border: 1px solid var(--border);
+}
+.mode-btn {
+  padding: 5px 14px; border-radius: 18px; border: none; cursor: pointer;
+  font-size: 12px; font-weight: 600; transition: all 0.2s; background: none; color: var(--text-sec);
+}
+.mode-btn.active { background: var(--primary-mid); color: white; }
+.search-hint { font-size: 12px; color: var(--text-sec); }
+.ai-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ai-chip {
+  background: var(--primary-light); color: var(--primary-dark); border: 1px solid var(--primary-mid);
+  border-radius: 12px; padding: 3px 10px; font-size: 12px;
+}
+#ai-notice { font-size: 12px; color: var(--text-sec); }
+
+/* LAYOUT */
+.app-body { display: flex; flex: 1; min-height: 0; }
+
+/* SIDEBAR */
+#sidebar {
+  width: var(--sidebar-w); min-width: var(--sidebar-w); background: white;
+  border-right: 1px solid var(--border); overflow-y: auto; padding: 16px;
+  flex-shrink: 0;
+}
+.sidebar-section { margin-bottom: 20px; }
+.sidebar-section h3 {
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+  color: var(--text-sec); letter-spacing: 0.5px; margin-bottom: 10px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--border);
+}
+.filter-links { display: flex; gap: 8px; margin-bottom: 6px; }
+.filter-link { font-size: 11px; color: var(--primary-mid); cursor: pointer; text-decoration: underline; }
+.funder-list { max-height: 220px; overflow-y: auto; }
+.filter-item { display: flex; align-items: center; gap: 6px; padding: 3px 0; cursor: pointer; }
+.filter-item input[type=checkbox] { cursor: pointer; }
+.filter-item label { font-size: 13px; cursor: pointer; flex: 1; }
+.filter-count { font-size: 11px; color: var(--text-sec); }
+
+/* Sliders */
+.range-wrap { padding: 4px 0; }
+.range-labels { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-sec); margin-top: 4px; }
+.dual-range { position: relative; height: 24px; }
+.dual-range input[type=range] {
+  position: absolute; width: 100%; pointer-events: none;
+  -webkit-appearance: none; background: none; height: 4px; top: 10px;
+}
+.dual-range input[type=range]::-webkit-slider-thumb {
+  pointer-events: all; -webkit-appearance: none; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--primary-mid); cursor: pointer;
+  border: 2px solid white; box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+.range-track {
+  position: absolute; height: 4px; background: var(--border); border-radius: 2px;
+  top: 10px; left: 0; right: 0;
+}
+.range-fill {
+  position: absolute; height: 4px; background: var(--primary-mid); border-radius: 2px; top: 10px;
+}
+input[type=range].single { -webkit-appearance: none; width: 100%; height: 4px; border-radius: 2px; outline: none; }
+input[type=range].single::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--primary-mid); cursor: pointer; border: 2px solid white;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+
+.radio-group { display: flex; flex-direction: column; gap: 6px; }
+.radio-item { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.radio-item label { font-size: 13px; cursor: pointer; }
+
+.satw-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.satw-warn { font-size: 11px; color: var(--conf-mid); margin-left: 18px; }
+
+.canton-list { max-height: 180px; overflow-y: auto; }
+
+#reset-btn {
+  width: 100%; padding: 8px; background: var(--conf-low); color: white;
+  border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600;
+  margin-top: 8px;
+}
+#reset-btn:hover { background: #c0392b; }
+
+/* MAIN CONTENT */
+#main-content { flex: 1; overflow-y: auto; min-width: 0; }
+
+/* TABS */
+.tabs { display: flex; border-bottom: 2px solid var(--border); background: white; padding: 0 24px; }
+.tab-btn {
+  padding: 12px 20px; border: none; background: none; cursor: pointer;
+  font-size: 14px; font-weight: 500; color: var(--text-sec);
+  border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.2s;
+}
+.tab-btn.active { color: var(--primary-mid); border-bottom-color: var(--primary-mid); font-weight: 600; }
+.tab-btn:hover { color: var(--primary-dark); }
+
+.tab-pane { display: none; padding: 20px 24px; }
+.tab-pane.active { display: block; }
+
+/* RESULTS TAB */
+.results-toolbar {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 16px; flex-wrap: wrap; gap: 8px;
+}
+.results-count { font-size: 14px; color: var(--text-sec); }
+.results-count strong { color: var(--text); }
+.sort-select {
+  border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px;
+  font-size: 13px; background: white; cursor: pointer; outline: none;
+}
+
+.card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 900px) { .card-grid { grid-template-columns: 1fr; } }
+
+.project-card {
+  background: white; border: 1px solid var(--border); border-radius: 10px;
+  padding: 16px; cursor: pointer; transition: box-shadow 0.2s, border-color 0.2s;
+}
+.project-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.1); border-color: var(--primary-mid); }
+.card-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.funder-badge {
+  background: var(--primary-dark); color: white; border-radius: 4px;
+  padding: 2px 8px; font-size: 11px; font-weight: 600;
+}
+.year-badge {
+  background: var(--bg); color: var(--text-sec); border: 1px solid var(--border);
+  border-radius: 4px; padding: 2px 8px; font-size: 11px;
+}
+.conf-dot { width: 8px; height: 8px; border-radius: 50%; }
+.budget-badge { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--primary-dark); }
+.card-title { font-size: 14px; font-weight: 600; line-height: 1.4; margin-bottom: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card-institution { font-size: 12px; color: var(--text-sec); margin-bottom: 10px; }
+.card-divider { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+.card-abstract { font-size: 13px; line-height: 1.5; color: var(--text); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.card-abstract.expanded { -webkit-line-clamp: unset; }
+.show-more { color: var(--primary-mid); cursor: pointer; font-size: 12px; text-decoration: underline; margin-top: 4px; display: inline-block; }
+.card-keywords { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.kw-chip {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 2px 8px; font-size: 11px; color: var(--text-sec);
+}
+.satw-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.satw-chip {
+  border-radius: 10px; padding: 2px 8px; font-size: 11px; color: white;
+  display: flex; align-items: center; gap: 4px;
+}
+
+/* PAGINATION */
+.pagination { display: flex; justify-content: center; align-items: center; gap: 6px; margin-top: 24px; flex-wrap: wrap; }
+.page-btn {
+  border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px;
+  cursor: pointer; background: white; font-size: 13px; transition: all 0.2s;
+}
+.page-btn:hover { background: var(--primary-light); border-color: var(--primary-mid); }
+.page-btn.active { background: var(--primary-mid); color: white; border-color: var(--primary-mid); }
+.page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* MODAL */
+#modal-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  z-index: 1000; padding: 20px; overflow-y: auto;
+}
+#modal-overlay.open { display: flex; align-items: flex-start; justify-content: center; }
+.modal {
+  background: white; border-radius: 12px; max-width: 760px; width: 100%;
+  padding: 28px; margin: auto; position: relative;
+}
+.modal-close {
+  position: absolute; top: 16px; right: 16px; background: none; border: none;
+  cursor: pointer; font-size: 22px; color: var(--text-sec); line-height: 1;
+}
+.modal-close:hover { color: var(--text); }
+.modal h2 { font-size: 18px; font-weight: 700; line-height: 1.4; margin-bottom: 16px; padding-right: 32px; }
+.modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.modal-field label { font-size: 11px; color: var(--text-sec); text-transform: uppercase; font-weight: 600; display: block; margin-bottom: 2px; }
+.modal-field p { font-size: 13px; }
+.modal-section { margin-bottom: 16px; }
+.modal-section h3 { font-size: 13px; font-weight: 700; color: var(--text-sec); text-transform: uppercase; margin-bottom: 6px; }
+.modal-section p { font-size: 13px; line-height: 1.6; }
+.modal-link {
+  display: inline-block; margin-top: 16px; background: var(--primary-mid); color: white;
+  padding: 8px 18px; border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 600;
+}
+.modal-link:hover { background: var(--primary-dark); }
+
+/* STATISTICS TAB */
+.chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+@media (max-width: 1000px) { .chart-grid { grid-template-columns: 1fr; } }
+.chart-box { background: white; border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+.chart-box h3 { font-size: 14px; font-weight: 600; margin-bottom: 16px; color: var(--primary-dark); }
+.chart-wrap { position: relative; height: 280px; }
+.chart-wrap.tall { height: 420px; }
+
+/* SATW TAB */
+.satw-summary {
+  background: var(--primary-light); border: 1px solid var(--primary-mid);
+  border-radius: 10px; padding: 16px; margin-bottom: 24px;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+}
+.satw-summary-item { text-align: center; }
+.satw-summary-item .val { font-size: 22px; font-weight: 700; color: var(--primary-dark); }
+.satw-summary-item .lbl { font-size: 11px; color: var(--text-sec); margin-top: 2px; }
+
+.satw-field-section { margin-bottom: 16px; }
+.satw-field-header {
+  display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+  border-radius: 8px; cursor: pointer; color: white; font-weight: 600; font-size: 14px;
+  user-select: none;
+}
+.satw-field-header .chevron { margin-left: auto; transition: transform 0.2s; }
+.satw-field-header.open .chevron { transform: rotate(180deg); }
+.satw-field-content { display: none; border: 1px solid var(--border); border-radius: 0 0 8px 8px; background: white; }
+.satw-field-content.open { display: block; }
+
+table.satw-table { width: 100%; border-collapse: collapse; }
+table.satw-table th {
+  text-align: left; font-size: 11px; font-weight: 700; color: var(--text-sec);
+  text-transform: uppercase; padding: 10px 12px; border-bottom: 2px solid var(--border);
+}
+table.satw-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+table.satw-table tr:last-child td { border-bottom: none; }
+table.satw-table tr.clickable:hover { background: var(--bg); cursor: pointer; }
+.trend-up { color: var(--conf-high); font-weight: 700; }
+.trend-down { color: var(--conf-low); font-weight: 700; }
+.trend-flat { color: var(--text-sec); font-weight: 700; }
+
+.satw-tech-detail {
+  background: var(--bg); padding: 16px; border-top: 1px solid var(--border);
+}
+.satw-tech-detail h4 { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+.mini-chart-wrap { height: 100px; margin-bottom: 12px; }
+.satw-top-list { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.satw-top-col h5 { font-size: 11px; text-transform: uppercase; color: var(--text-sec); font-weight: 700; margin-bottom: 6px; }
+.satw-top-col li { font-size: 12px; list-style: none; padding: 2px 0; }
+.satw-sample-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+@media (max-width: 900px) { .satw-sample-cards { grid-template-columns: 1fr; } }
+
+/* EMPTY STATE */
+.empty-state { text-align: center; padding: 60px 20px; }
+.empty-state h3 { font-size: 18px; color: var(--text-sec); margin-bottom: 8px; }
+.empty-state p { font-size: 14px; color: var(--text-sec); }
+
+/* FOOTER */
+footer {
+  background: var(--primary-dark); color: rgba(255,255,255,0.6);
+  padding: 20px 24px; font-size: 12px; line-height: 1.7;
+}
+footer a { color: rgba(255,255,255,0.8); }
+
+/* MOBILE */
+@media (max-width: 720px) {
+  #sidebar { position: fixed; left: -280px; top: 0; bottom: 0; z-index: 200; transition: left 0.3s; box-shadow: 2px 0 12px rgba(0,0,0,0.2); }
+  #sidebar.open { left: 0; }
+  #sidebar-toggle { display: flex; }
+  .header-top { flex-direction: column; }
+  .stat-cards { justify-content: stretch; }
+  .stat-card { flex: 1; min-width: 80px; }
+  .chart-grid { grid-template-columns: 1fr; }
+  .modal-grid { grid-template-columns: 1fr; }
+  .satw-sample-cards { grid-template-columns: 1fr; }
+  .satw-summary { grid-template-columns: 1fr; }
+}
+#sidebar-toggle {
+  display: none; background: var(--primary-mid); color: white;
+  border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer;
+  font-size: 13px; align-items: center; gap: 6px;
+}
+#sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 199; }
+#sidebar-overlay.open { display: block; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #adb5bd; }
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="loading-screen">
+  <h1>ARAMIS Explorer</h1>
+  <p>Loading Swiss public research funding data…</p>
+  <div class="loader-bar"><div class="loader-fill" id="loader-fill"></div></div>
+  <div id="load-status">Fetching CSV…</div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app">
+
+<header>
+  <div class="header-top">
+    <div class="header-title">
+      <h1>ARAMIS Explorer</h1>
+      <p>Swiss Public Research Funding · Federal Administration Database · <a href="#disclaimer" style="color:rgba(255,200,100,0.9);text-decoration:underline;font-weight:600;">⚠ Read this first</a></p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:flex-start;">
+      <button id="sidebar-toggle">☰ Filters</button>
+      <div class="stat-cards">
+        <div class="stat-card"><div class="val" id="stat-projects">—</div><div class="lbl">Projects</div></div>
+        <div class="stat-card"><div class="val" id="stat-chf">—</div><div class="lbl">Total CHF</div></div>
+        <div class="stat-card"><div class="val" id="stat-funders">—</div><div class="lbl">Funders</div></div>
+        <div class="stat-card"><div class="val" id="stat-years">—</div><div class="lbl">Year range</div></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- SEARCH BAR -->
+<div id="search-bar">
+  <div class="search-row">
+    <input type="text" id="search-input" placeholder="Search projects by keyword, topic, institution…" autocomplete="off">
+    <div class="mode-toggle">
+      <button class="mode-btn active" id="mode-keyword" onclick="setMode('keyword')">Keyword</button>
+      <button class="mode-btn" id="mode-ai" onclick="setMode('ai')">✨ AI</button>
+    </div>
+  </div>
+  <div id="search-hint" class="search-hint" style="display:none;"></div>
+  <div id="ai-expanded" style="display:none;">
+    <div id="ai-notice" class="search-hint"></div>
+    <div class="ai-chips" id="ai-chips"></div>
+  </div>
+</div>
+
+<div class="app-body">
+
+<!-- SIDEBAR OVERLAY (mobile) -->
+<div id="sidebar-overlay" onclick="closeSidebar()"></div>
+
+<!-- SIDEBAR -->
+<div id="sidebar">
+
+  <div class="sidebar-section">
+    <h3>Funder</h3>
+    <div class="filter-links">
+      <span class="filter-link" onclick="selectAllFunders()">Select all</span>
+      <span class="filter-link" onclick="clearFunders()">Clear</span>
+    </div>
+    <div class="funder-list" id="funder-list"></div>
+  </div>
+
+  <div class="sidebar-section">
+    <h3>Status</h3>
+    <div class="radio-group" id="status-group">
+      <label class="radio-item"><input type="radio" name="status" value="all" checked onchange="onFilterChange()"> <label>All</label></label>
+      <label class="radio-item"><input type="radio" name="status" value="completed" onchange="onFilterChange()"> <label>Completed</label></label>
+      <label class="radio-item"><input type="radio" name="status" value="ongoing" onchange="onFilterChange()"> <label>Ongoing</label></label>
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <h3>Year range</h3>
+    <div class="range-wrap">
+      <div class="dual-range">
+        <div class="range-track"></div>
+        <div class="range-fill" id="year-fill"></div>
+        <input type="range" id="year-min" min="1990" max="2027" value="1990" oninput="onYearChange()">
+        <input type="range" id="year-max" min="1990" max="2027" value="2027" oninput="onYearChange()">
+      </div>
+      <div class="range-labels">
+        <span id="year-min-lbl">1990</span>
+        <span id="year-max-lbl">2027</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <h3>Min. confidence</h3>
+    <div class="range-wrap">
+      <input type="range" class="single" id="conf-slider" min="0" max="1" step="0.05" value="0" oninput="onFilterChange()">
+      <div class="range-labels">
+        <span>Low</span><span>Medium</span><span>High</span><span>Very High</span>
+      </div>
+      <div id="conf-val" style="font-size:12px;color:var(--text-sec);margin-top:4px;">Threshold: 0.0 — showing all</div>
+      <div style="font-size:11px;color:var(--text-sec);margin-top:2px;">Higher = richer source data</div>
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <h3>SATW Research Field</h3>
+    <div id="satw-field-list"></div>
+    <label class="filter-item" style="margin-top:8px;">
+      <input type="checkbox" id="only-satw" onchange="onFilterChange()">
+      <label for="only-satw">Only SATW-tagged projects</label>
+    </label>
+  </div>
+
+  <div class="sidebar-section">
+    <h3>Canton <span style="font-size:11px;font-weight:400;color:var(--text-sec)">(40% have location data)</span></h3>
+    <div class="canton-list" id="canton-list"></div>
+  </div>
+
+  <div class="sidebar-section">
+    <h3>Institution type</h3>
+    <div class="radio-group">
+      <label class="radio-item"><input type="radio" name="inst-type" value="all" checked onchange="onFilterChange()"> <label>All</label></label>
+      <label class="radio-item"><input type="radio" name="inst-type" value="university" onchange="onFilterChange()"> <label>University / research</label></label>
+      <label class="radio-item"><input type="radio" name="inst-type" value="company" onchange="onFilterChange()"> <label>Company (AG/SA/GmbH…)</label></label>
+      <label class="radio-item"><input type="radio" name="inst-type" value="federal" onchange="onFilterChange()"> <label>Federal office</label></label>
+    </div>
+  </div>
+
+  <button id="reset-btn" onclick="resetFilters()">Reset all filters</button>
+</div>
+
+<!-- MAIN CONTENT -->
+<div id="main-content">
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('results')">Results</button>
+    <button class="tab-btn" onclick="switchTab('statistics')">Statistics</button>
+    <button class="tab-btn" onclick="switchTab('satw')">SATW Foresight</button>
+  </div>
+
+  <!-- RESULTS TAB -->
+  <div class="tab-pane active" id="tab-results">
+    <div class="results-toolbar">
+      <div class="results-count" id="results-count">—</div>
+      <select class="sort-select" id="sort-select" onchange="onSortChange()">
+        <option value="newest">Newest first</option>
+        <option value="oldest">Oldest first</option>
+        <option value="budget-desc">Budget: high to low</option>
+        <option value="budget-asc">Budget: low to high</option>
+        <option value="conf-desc">Confidence: high to low</option>
+      </select>
+    </div>
+    <div class="card-grid" id="card-grid"></div>
+    <div class="pagination" id="pagination"></div>
+  </div>
+
+  <!-- STATISTICS TAB -->
+  <div class="tab-pane" id="tab-statistics">
+    <div class="chart-grid">
+      <div class="chart-box">
+        <h3>Projects &amp; Funding by Year</h3>
+        <div class="chart-wrap"><canvas id="chart-years"></canvas></div>
+      </div>
+      <div class="chart-box">
+        <h3>Top Funders by Project Count</h3>
+        <div class="chart-wrap"><canvas id="chart-funders"></canvas></div>
+      </div>
+      <div class="chart-box">
+        <h3>SATW Technology Distribution</h3>
+        <div class="chart-wrap tall"><canvas id="chart-satw"></canvas></div>
+      </div>
+      <div class="chart-box">
+        <h3>Top Keywords (current filter)</h3>
+        <div class="chart-wrap tall"><canvas id="chart-keywords"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SATW TAB -->
+  <div class="tab-pane" id="tab-satw">
+    <div class="satw-summary" id="satw-summary"></div>
+    <p style="font-size:13px;color:var(--text-sec);margin-bottom:20px;line-height:1.6;">
+      The <strong>SATW Technology Outlook 2025</strong> identifies 31 emerging technologies for Switzerland.
+      This view shows how public funding has tracked these technologies over time.
+    </p>
+    <div id="satw-sections"></div>
+  </div>
+
+</div><!-- /main-content -->
+</div><!-- /app-body -->
+
+<!-- MODAL -->
+<div id="modal-overlay" onclick="closeModalOverlay(event)">
+  <div class="modal" id="modal-content">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<footer id="disclaimer">
+  <div style="background:rgba(255,200,100,0.15);border:1px solid rgba(255,200,100,0.4);border-radius:8px;padding:16px 20px;margin-bottom:16px;">
+    <strong style="color:rgba(255,220,120,1);font-size:14px;">⚠ Please read before using this tool</strong><br><br>
+    <strong style="color:white;">Personal project, no institutional affiliation.</strong> This is a hobby project built by a private individual with no connection to the Swiss federal administration, ARAMIS, SATW, or any research institution. It is not peer-reviewed, not officially endorsed, and should not be cited as an authoritative source.<br><br>
+    <strong style="color:white;">The analysis is amateurish by design.</strong> Statistics, trends, and categorisations shown here are rough extrapolations from incomplete data. Around 10% of projects have no budget, ~60% have no location data, and SATW technology tags were assigned by a general-purpose AI model that makes systematic errors (e.g. "Industry 5.0" is almost certainly over-tagged). Funding totals and project counts may differ from official ARAMIS figures.<br><br>
+    <strong style="color:white;">Do not base decisions on this tool.</strong> If you need reliable figures, go directly to <a href="https://www.aramis.admin.ch" target="_blank">aramis.admin.ch</a>. Abstracts and keywords were generated by Mistral Small and may contain errors, mistranslations, or hallucinations. Always verify important details against the original source.
+  </div>
+  <strong style="color:white;">Data sources &amp; credits</strong><br>
+  Raw data: <a href="https://www.aramis.admin.ch" target="_blank">ARAMIS</a> — Federal Administration Research Database (aramis.admin.ch) ·
+  Foresight taxonomy: <a href="https://technology-outlook.satw.ch" target="_blank">SATW Technology Outlook 2025</a><br>
+  Abstracts &amp; keywords: extracted and translated using Mistral Small (mistral.ai) — AI-generated, unverified ·
+  AI search: Mistral API (free tier)<br>
+  <strong style="color:rgba(255,200,100,0.8);">Industry 5.0 note:</strong> This SATW category is likely over-represented due to broad keyword matching in the enrichment pipeline.
+</footer>
+
+</div><!-- /app -->
+
+<script>
+// ─── CONFIG ────────────────────────────────────────────────────────────────
+const MISTRAL_API_KEY = "PASTE_YOUR_FREE_TIER_KEY_HERE";
+const PAGE_SIZE = 24;
+const EXCLUDED_KEYWORDS = new Set(['switzerland','industrial productivity','public health','international cooperation','research','development','project','analysis','study','management','system','process']);
+
+// ─── SATW TAXONOMY ─────────────────────────────────────────────────────────
+const SATW_FIELDS = {
+  'Digital World': { color: '#3498DB', techs: ['Quantum computing','Internet of Things','Industry 5.0','PICs (photonic integrated circuits)','URLLC'] },
+  'Energy and environment': { color: '#27AE60', techs: ['Artificial photosynthesis','Deep geothermal energy','Hydrogen','Negative emissions technologies','Phosphorus recycling','Plastics recycling','Synfuels'] },
+  'Manufacturing processes and materials': { color: '#E67E22', techs: ['2D materials','Bioplastics from waste','CO2-based plastics','CO2-reduced concrete','Diamond-based photonics','Fibre-optic sensors','Flexible batteries','Perovskite','Plasma technologies','Sustainable adhesives and sealants','TIMs (thermal interface materials)'] },
+  'Life Sciences': { color: '#9B59B6', techs: ['Bacteriophages','Biocatalysis','Bioinspiration and biointegration','Human augmentation','mRNA','Personalised nutrition','Synthetic biology'] },
+  'Space Sciences': { color: '#1ABC9C', techs: ['Earth observation'] },
+};
+const OVERHYPED_TECH = new Set(['Industry 5.0']);
+
+function satwFieldForTech(tech) {
+  for (const [field, { techs }] of Object.entries(SATW_FIELDS)) {
+    if (techs.includes(tech)) return field;
+  }
+  return null;
+}
+function satwColorForTech(tech) {
+  const f = satwFieldForTech(tech);
+  return f ? SATW_FIELDS[f].color : '#95A5A6';
+}
+
+// ─── PLZ → CANTON ──────────────────────────────────────────────────────────
+function plzToCanton(plz) {
+  const n = parseInt(plz);
+  if (n >= 1000 && n <= 1299) return 'VD';
+  if (n >= 1300 && n <= 1699) return 'FR';
+  if (n >= 1700 && n <= 1799) return 'FR';
+  if (n >= 1800 && n <= 1899) return 'VD';
+  if (n >= 1900 && n <= 1999) return 'VS';
+  if (n >= 2000 && n <= 2399) return 'NE';
+  if (n >= 2400 && n <= 2429) return 'BE';
+  if (n >= 2500 && n <= 2699) return 'BE';
+  if (n >= 2700 && n <= 2799) return 'SO';
+  if (n >= 2800 && n <= 2999) return 'JU';
+  if (n >= 3000 && n <= 3799) return 'BE';
+  if (n >= 3900 && n <= 3999) return 'VS';
+  if (n >= 4000 && n <= 4099) return 'BS';
+  if (n >= 4100 && n <= 4199) return 'BL';
+  if (n >= 4200 && n <= 4299) return 'SO';
+  if (n >= 4300 && n <= 4399) return 'AG';
+  if (n >= 4400 && n <= 4699) return 'SO';
+  if (n >= 4700 && n <= 4799) return 'BE';
+  if (n >= 4800 && n <= 4999) return 'AG';
+  if (n >= 5000 && n <= 5799) return 'AG';
+  if (n >= 6000 && n <= 6299) return 'LU';
+  if (n >= 6300 && n <= 6399) return 'ZG';
+  if (n >= 6400 && n <= 6499) return 'OW';
+  if (n >= 6500 && n <= 6999) return 'TI';
+  if (n >= 7000 && n <= 7299) return 'GR';
+  if (n >= 7300 && n <= 7399) return 'SG';
+  if (n >= 7400 && n <= 7999) return 'GR';
+  if (n >= 8000 && n <= 8199) return 'ZH';
+  if (n >= 8200 && n <= 8299) return 'SH';
+  if (n >= 8300 && n <= 8499) return 'ZH';
+  if (n >= 8500 && n <= 8599) return 'TG';
+  if (n >= 8600 && n <= 8999) return 'ZH';
+  if (n >= 9000 && n <= 9299) return 'SG';
+  if (n >= 9300 && n <= 9699) return 'SG';
+  return null;
+}
+
+const UNI_KEYWORDS = ['Universit','Hochschule','HES-SO','ZHAW','FHNW','BFH','OST','ETH','EPFL','EMPA','PSI','Eawag','WSL','Agroscope','CSEM','IDIAP','CHUV','HUG','USZ','Fachhochschule'];
+const COMPANY_SUFFIXES = [' AG',' SA',' GmbH',' Sàrl',' Ltd',' S.A.','AG,','SA,','GmbH,'];
+const FEDERAL_KEYWORDS = ['Bundesamt','admin.ch','BAZL','BAFU','SECO','BAG','BLW','ASTRA','BSV','EDA'];
+const TITLE_PREFIXES = ['Prof','Dr','Dipl','Mag','Lic','Med','Ing','Herr','Frau','Mr','Ms','PhD'];
+const ADDRESS_HINTS = ['strasse','gasse','allee','weg','platz','rue ','avenue','via ','CH-','PF ','Postfach'];
+
+function extractContact(kontakt) {
+  if (!kontakt) return { institution: '', canton: null, isCompany: false, isFederal: false, isUni: false };
+  const lines = kontakt.split(/\n|\r/).map(l => l.trim()).filter(Boolean);
+  let institution = '';
+  let canton = null;
+  for (const line of lines) {
+    // Extract PLZ
+    const plzMatch = line.match(/CH-(\d{4})/);
+    if (plzMatch && !canton) canton = plzToCanton(plzMatch[1]);
+    // Skip titles, emails, addresses
+    if (line.includes('@')) continue;
+    if (ADDRESS_HINTS.some(h => line.toLowerCase().includes(h.toLowerCase()))) continue;
+    if (/^\d/.test(line)) continue;
+    if (TITLE_PREFIXES.some(p => line.startsWith(p))) continue;
+    // Skip person names (≤3 words, all words capitalised, no legal suffix)
+    const words = line.split(/\s+/);
+    const isPersonName = words.length <= 3 && words.every(w => w && w[0] === w[0].toUpperCase()) &&
+      !COMPANY_SUFFIXES.some(s => line.includes(s)) && !UNI_KEYWORDS.some(k => line.includes(k));
+    if (isPersonName && words.length <= 2) continue;
+    if (!institution) { institution = line; break; }
+  }
+  const isUni = UNI_KEYWORDS.some(k => institution.includes(k));
+  const isCompany = !isUni && COMPANY_SUFFIXES.some(s => institution.includes(s));
+  const isFederal = FEDERAL_KEYWORDS.some(k => institution.includes(k));
+  return { institution, canton, isCompany, isFederal, isUni };
+}
+
+// ─── APP STATE ──────────────────────────────────────────────────────────────
+let rows = [];        // raw parsed rows
+let index = [];       // enriched index
+let filtered = [];    // current filtered rows
+let charts = {};
+let expandedAbstracts = new Set();
+let expandedSatwRows = {};
+
+const appState = {
+  searchQuery: '',
+  searchMode: 'keyword',
+  aiTerms: [],
+  sortBy: 'newest',
+  page: 1,
+  filters: {
+    funders: new Set(),
+    status: 'all',
+    yearMin: 1990,
+    yearMax: 2027,
+    confMin: 0,
+    satwFields: new Set(),
+    onlySatw: false,
+    cantons: new Set(),
+    instType: 'all',
+  }
+};
+
+// ─── LOADING ────────────────────────────────────────────────────────────────
+function setLoadStatus(msg, pct) {
+  document.getElementById('load-status').textContent = msg;
+  document.getElementById('loader-fill').style.width = pct + '%';
+}
+
+// ─── PARSE & INDEX ──────────────────────────────────────────────────────────
+function buildIndex(data) {
+  setLoadStatus('Building search index…', 80);
+  return data.map(row => {
+    const contact = extractContact(row['Kontaktperson'] || '');
+    const satw = (row['satw_2025'] || '').split(';').map(s => s.trim()).filter(Boolean);
+    const keywords = (row['keywords'] || '').split(';').map(s => s.trim()).filter(Boolean);
+    const conf = parseFloat(row['confidence']) || 0;
+    const budget = parseFloat(row['Gesamtkosten bewilligt']) || 0;
+    const startYear = parseInt((row['Projektstart'] || '').substring(0, 4)) || 0;
+    const endYear = parseInt((row['Projektende'] || '').substring(0, 4)) || 0;
+    const year = startYear || endYear;
+    const searchText = [
+      row['abstract_en'], row['keywords'],
+      row['Projekttitel englisch'], row['Projekttitel deutsch'],
+      row['Projekttitel französisch'], row['Projekttitel italienisch'],
+      row['Forschungsstelle'], contact.institution
+    ].join(' ').toLowerCase();
+    return {
+      ...row,
+      _conf: conf, _budget: budget, _startYear: startYear, _endYear: endYear, _year: year,
+      _institution: contact.institution, _canton: contact.canton,
+      _isCompany: contact.isCompany, _isFederal: contact.isFederal, _isUni: contact.isUni,
+      _satw: satw, _keywords: keywords, _searchText: searchText,
+      _hasAbstract: (row['abstract_en'] || '').trim() !== 'No abstract available.' && (row['abstract_en'] || '').trim() !== '',
+    };
+  });
+}
+
+// ─── FILTER LOGIC ──────────────────────────────────────────────────────────
+function applyFilters() {
+  const { filters, searchQuery, searchMode, aiTerms } = appState;
+  const terms = searchMode === 'ai' && aiTerms.length
+    ? aiTerms.map(t => t.toLowerCase())
+    : searchQuery ? [searchQuery.toLowerCase()] : [];
+
+  filtered = index.filter(row => {
+    if (filters.funders.size && !filters.funders.has(row['Forschungsstelle'])) return false;
+    if (filters.status === 'completed' && row['Projektstatus'] !== 'Abgeschlossen') return false;
+    if (filters.status === 'ongoing' && row['Projektstatus'] !== 'In Bearbeitung') return false;
+    const yr = row._year;
+    if (yr && (yr < filters.yearMin || yr > filters.yearMax)) return false;
+    if (!yr && filters.yearMin > 1990) return false;
+    if (row._conf < filters.confMin) return false;
+    if (filters.onlySatw && row._satw.length === 0) return false;
+    if (filters.satwFields.size) {
+      const rowFields = new Set(row._satw.map(t => satwFieldForTech(t)).filter(Boolean));
+      if (![...filters.satwFields].some(f => rowFields.has(f))) return false;
+    }
+    if (filters.cantons.size && !filters.cantons.has(row._canton)) return false;
+    if (filters.instType === 'university' && !row._isUni) return false;
+    if (filters.instType === 'company' && !row._isCompany) return false;
+    if (filters.instType === 'federal' && !row._isFederal) return false;
+    if (terms.length) {
+      if (searchMode === 'ai') {
+        if (!terms.some(t => row._searchText.includes(t))) return false;
+      } else {
+        if (!row._searchText.includes(terms[0])) return false;
+      }
+    }
+    return true;
+  });
+}
+
+function sortFiltered() {
+  const s = appState.sortBy;
+  filtered.sort((a, b) => {
+    if (s === 'newest') return (b._year || 0) - (a._year || 0);
+    if (s === 'oldest') return (a._year || 0) - (b._year || 0);
+    if (s === 'budget-desc') return b._budget - a._budget;
+    if (s === 'budget-asc') return a._budget - b._budget;
+    if (s === 'conf-desc') return b._conf - a._conf;
+    return 0;
+  });
+}
+
+// ─── RENDER HEADER STATS ───────────────────────────────────────────────────
+function renderStats() {
+  const n = filtered.length;
+  const chf = filtered.reduce((s, r) => s + r._budget, 0);
+  const funders = new Set(filtered.map(r => r['Forschungsstelle'])).size;
+  const years = filtered.map(r => r._year).filter(Boolean);
+  const minY = years.length ? Math.min(...years) : '—';
+  const maxY = years.length ? Math.max(...years) : '—';
+  document.getElementById('stat-projects').textContent = n.toLocaleString();
+  document.getElementById('stat-chf').textContent = chfCompact(chf);
+  document.getElementById('stat-funders').textContent = funders;
+  document.getElementById('stat-years').textContent = years.length ? `${minY}–${maxY}` : '—';
+}
+
+function chfCompact(v) {
+  if (v >= 1e9) return 'CHF ' + (v/1e9).toFixed(1) + 'B';
+  if (v >= 1e6) return 'CHF ' + (v/1e6).toFixed(0) + 'M';
+  if (v >= 1e3) return 'CHF ' + (v/1e3).toFixed(0) + 'k';
+  return v ? 'CHF ' + v : '—';
+}
+function chfFull(v) {
+  if (!v) return '—';
+  return 'CHF ' + Math.round(v).toLocaleString();
+}
+
+// ─── RENDER SIDEBAR ────────────────────────────────────────────────────────
+function renderFunderList() {
+  const counts = {};
+  index.forEach(r => { const f = r['Forschungsstelle']; counts[f] = (counts[f]||0)+1; });
+  const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+  const top15 = sorted.slice(0,15);
+  const others = sorted.slice(15);
+  let html = '';
+  top15.forEach(([funder, cnt]) => {
+    const chk = appState.filters.funders.has(funder) ? 'checked' : '';
+    html += `<label class="filter-item">
+      <input type="checkbox" ${chk} onchange="toggleFunder('${funder.replace(/'/g,"\\'")}')">
+      <label style="font-size:13px;flex:1;">${funder}</label>
+      <span class="filter-count">${cnt.toLocaleString()}</span>
+    </label>`;
+  });
+  if (others.length) {
+    const otherCount = others.reduce((s,[,c])=>s+c,0);
+    const otherFunders = others.map(([f])=>f);
+    const anyOtherChecked = otherFunders.some(f => appState.filters.funders.has(f));
+    html += `<label class="filter-item">
+      <input type="checkbox" id="other-funders-chk" ${anyOtherChecked?'checked':''} onchange="toggleOtherFunders(${JSON.stringify(otherFunders)})">
+      <label style="font-size:13px;flex:1;font-style:italic;">Other (${others.length} agencies)</label>
+      <span class="filter-count">${otherCount.toLocaleString()}</span>
+    </label>`;
+  }
+  document.getElementById('funder-list').innerHTML = html;
+}
+
+function renderCantonList() {
+  const counts = {};
+  index.forEach(r => { if (r._canton) counts[r._canton] = (counts[r._canton]||0)+1; });
+  const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+  let html = sorted.map(([canton, cnt]) => {
+    const chk = appState.filters.cantons.has(canton) ? 'checked' : '';
+    return `<label class="filter-item">
+      <input type="checkbox" ${chk} onchange="toggleCanton('${canton}')">
+      <label style="font-size:13px;flex:1;">${canton}</label>
+      <span class="filter-count">${cnt.toLocaleString()}</span>
+    </label>`;
+  }).join('');
+  document.getElementById('canton-list').innerHTML = html;
+}
+
+function renderSatwFieldList() {
+  let html = '';
+  for (const [field, { color }] of Object.entries(SATW_FIELDS)) {
+    const chk = appState.filters.satwFields.has(field) ? 'checked' : '';
+    html += `<label class="filter-item">
+      <input type="checkbox" ${chk} onchange="toggleSatwField('${field}')">
+      <span class="satw-dot" style="background:${color};"></span>
+      <label style="font-size:13px;flex:1;">${field}</label>
+    </label>`;
+  }
+  document.getElementById('satw-field-list').innerHTML = html;
+}
+
+function toggleFunder(funder) {
+  if (appState.filters.funders.has(funder)) appState.filters.funders.delete(funder);
+  else appState.filters.funders.add(funder);
+  onFilterChange();
+}
+function toggleOtherFunders(funders) {
+  const chk = document.getElementById('other-funders-chk').checked;
+  funders.forEach(f => chk ? appState.filters.funders.add(f) : appState.filters.funders.delete(f));
+  onFilterChange();
+}
+function selectAllFunders() {
+  index.forEach(r => appState.filters.funders.add(r['Forschungsstelle']));
+  renderFunderList(); onFilterChange();
+}
+function clearFunders() {
+  appState.filters.funders.clear();
+  renderFunderList(); onFilterChange();
+}
+function toggleCanton(canton) {
+  if (appState.filters.cantons.has(canton)) appState.filters.cantons.delete(canton);
+  else appState.filters.cantons.add(canton);
+  onFilterChange();
+}
+function toggleSatwField(field) {
+  if (appState.filters.satwFields.has(field)) appState.filters.satwFields.delete(field);
+  else appState.filters.satwFields.add(field);
+  onFilterChange();
+}
+
+// ─── RENDER CARDS ──────────────────────────────────────────────────────────
+function renderCards() {
+  const start = (appState.page - 1) * PAGE_SIZE;
+  const page = filtered.slice(start, start + PAGE_SIZE);
+  const total = filtered.reduce((s, r) => s + r._budget, 0);
+  document.getElementById('results-count').innerHTML =
+    `Showing <strong>${filtered.length.toLocaleString()}</strong> of <strong>${index.length.toLocaleString()}</strong> projects · ${chfCompact(total)} total`;
+
+  if (!filtered.length) {
+    document.getElementById('card-grid').innerHTML = `<div class="empty-state" style="grid-column:1/-1"><h3>No projects found</h3><p>Try adjusting your filters or search query.</p></div>`;
+    document.getElementById('pagination').innerHTML = '';
+    return;
+  }
+
+  document.getElementById('card-grid').innerHTML = page.map((row, i) => buildCard(row, start + i)).join('');
+  renderPagination();
+}
+
+function buildCard(row, idx) {
+  const funder = row['Forschungsstelle'] || '—';
+  const year = row._startYear || row._endYear || '—';
+  const conf = row._conf;
+  const confColor = conf >= 0.8 ? 'var(--conf-high)' : conf >= 0.5 ? 'var(--conf-mid)' : 'var(--conf-low)';
+  const title = row['Projekttitel englisch'] || row['Projekttitel deutsch'] || row['Projekttitel französisch'] || '(no title)';
+  const abstract = row._hasAbstract ? (row['abstract_en'] || '') : '';
+  const kws = row._keywords.slice(0,5);
+  const satws = row._satw;
+  const expanded = expandedAbstracts.has(idx);
+
+  const kwHtml = kws.map(k => `<span class="kw-chip">${escHtml(k)}</span>`).join('');
+  const satwHtml = satws.map(t => {
+    const color = satwColorForTech(t);
+    const warn = OVERHYPED_TECH.has(t) ? ' ⚠️' : '';
+    return `<span class="satw-chip" style="background:${color};">${escHtml(t)}${warn}</span>`;
+  }).join('');
+
+  return `<div class="project-card" onclick="openModal(${JSON.stringify(idx).replace(/"/g,'&quot;')})">
+    <div class="card-meta">
+      <span class="funder-badge">${escHtml(funder)}</span>
+      <span class="year-badge">${year}</span>
+      <span class="conf-dot" style="background:${confColor};" title="Confidence: ${conf.toFixed(2)}"></span>
+      ${row._budget ? `<span class="budget-badge">${chfCompact(row._budget)}</span>` : ''}
+    </div>
+    <div class="card-title">${escHtml(title)}</div>
+    ${row._institution ? `<div class="card-institution">${escHtml(row._institution)}</div>` : ''}
+    ${abstract ? `<hr class="card-divider">
+    <div class="card-abstract ${expanded?'expanded':''}" id="abs-${idx}">${escHtml(abstract)}</div>
+    <span class="show-more" onclick="event.stopPropagation();toggleAbstract(${idx})">${expanded?'Show less':'Show more'}</span>` : ''}
+    ${(kwHtml||satwHtml) ? `<hr class="card-divider">` : ''}
+    ${kwHtml ? `<div class="card-keywords">${kwHtml}</div>` : ''}
+    ${satwHtml ? `<div class="satw-chips">${satwHtml}</div>` : ''}
+  </div>`;
+}
+
+function toggleAbstract(idx) {
+  if (expandedAbstracts.has(idx)) expandedAbstracts.delete(idx);
+  else expandedAbstracts.add(idx);
+  renderCards();
+}
+
+function renderPagination() {
+  const total = Math.ceil(filtered.length / PAGE_SIZE);
+  const cur = appState.page;
+  if (total <= 1) { document.getElementById('pagination').innerHTML = ''; return; }
+  let html = `<button class="page-btn" onclick="goPage(${cur-1})" ${cur===1?'disabled':''}>←</button>`;
+  const pages = pagesToShow(cur, total);
+  let prev = null;
+  pages.forEach(p => {
+    if (prev !== null && p - prev > 1) html += `<span style="padding:0 4px;color:var(--text-sec);">…</span>`;
+    html += `<button class="page-btn ${p===cur?'active':''}" onclick="goPage(${p})">${p}</button>`;
+    prev = p;
+  });
+  html += `<button class="page-btn" onclick="goPage(${cur+1})" ${cur===total?'disabled':''}>→</button>`;
+  document.getElementById('pagination').innerHTML = html;
+}
+function pagesToShow(cur, total) {
+  const s = new Set([1, total, cur, cur-1, cur+1, cur-2, cur+2].filter(p => p >= 1 && p <= total));
+  return [...s].sort((a,b)=>a-b);
+}
+function goPage(p) { appState.page = p; renderCards(); document.getElementById('tab-results').scrollTop = 0; updateHash(); }
+
+// ─── MODAL ──────────────────────────────────────────────────────────────────
+let modalIndex = [];
+function openModal(idx) {
+  const row = filtered[idx];
+  if (!row) return;
+  const num = row['Projektnummer'] || '';
+  const url = `https://www.aramis.admin.ch/Grundlagendetail/?Projektnr=${encodeURIComponent(num)}`;
+  document.getElementById('modal-body').innerHTML = `
+    <h2>${escHtml(row['Projekttitel englisch'] || row['Projekttitel deutsch'] || '(no title)')}</h2>
+    <div class="modal-grid">
+      <div class="modal-field"><label>Funder</label><p>${escHtml(row['Forschungsstelle']||'—')}</p></div>
+      <div class="modal-field"><label>Project No.</label><p>${escHtml(num)}</p></div>
+      <div class="modal-field"><label>Status</label><p>${escHtml(row['Projektstatus']||'—')}</p></div>
+      <div class="modal-field"><label>Start</label><p>${row['Projektstart']||'—'}</p></div>
+      <div class="modal-field"><label>End</label><p>${row['Projektende']||'—'}</p></div>
+      <div class="modal-field"><label>Budget</label><p>${chfFull(row._budget)}</p></div>
+      <div class="modal-field"><label>Confidence</label><p>${row._conf.toFixed(2)}</p></div>
+      <div class="modal-field"><label>Canton</label><p>${row._canton||'—'}</p></div>
+    </div>
+    ${row['Projekttitel deutsch'] ? `<div class="modal-section"><h3>Title (DE)</h3><p>${escHtml(row['Projekttitel deutsch'])}</p></div>` : ''}
+    ${row['Projekttitel français'] || row['Projekttitel französisch'] ? `<div class="modal-section"><h3>Title (FR)</h3><p>${escHtml(row['Projekttitel français']||row['Projekttitel französisch'])}</p></div>` : ''}
+    ${row['Projekttitel italiano'] || row['Projekttitel italienisch'] ? `<div class="modal-section"><h3>Title (IT)</h3><p>${escHtml(row['Projekttitel italiano']||row['Projekttitel italienisch'])}</p></div>` : ''}
+    ${row._hasAbstract ? `<div class="modal-section"><h3>Abstract (EN)</h3><p>${escHtml(row['abstract_en']||'')}</p></div>` : ''}
+    ${row['Kurzbeschreibung'] ? `<div class="modal-section"><h3>Original abstract</h3><p>${escHtml(row['Kurzbeschreibung'])}</p></div>` : ''}
+    ${row._keywords.length ? `<div class="modal-section"><h3>Keywords</h3><div class="card-keywords">${row._keywords.map(k=>`<span class="kw-chip">${escHtml(k)}</span>`).join('')}</div></div>` : ''}
+    ${row._satw.length ? `<div class="modal-section"><h3>SATW Technologies</h3><div class="satw-chips">${row._satw.map(t=>`<span class="satw-chip" style="background:${satwColorForTech(t)};">${escHtml(t)}</span>`).join('')}</div></div>` : ''}
+    ${row['Kontaktperson'] ? `<div class="modal-section"><h3>Contact / Institution</h3><p style="white-space:pre-line;font-size:12px;">${escHtml(row['Kontaktperson'])}</p></div>` : ''}
+    ${row['NABS-Kategorie'] ? `<div class="modal-section"><h3>NABS Category</h3><p>${escHtml(row['NABS-Kategorie'])}</p></div>` : ''}
+    ${row['Forschungsart'] ? `<div class="modal-section"><h3>Research type</h3><p>${escHtml(row['Forschungsart'])}</p></div>` : ''}
+    <a class="modal-link" href="${url}" target="_blank">View on ARAMIS →</a>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+function closeModal() { document.getElementById('modal-overlay').classList.remove('open'); }
+function closeModalOverlay(e) { if (e.target === document.getElementById('modal-overlay')) closeModal(); }
+
+// ─── STATISTICS CHARTS ──────────────────────────────────────────────────────
+function renderStatistics() {
+  renderYearChart();
+  renderFunderChart();
+  renderSatwChart();
+  renderKeywordsChart();
+}
+
+function destroyChart(id) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+}
+
+function renderYearChart() {
+  destroyChart('years');
+  const byCnt = {}, byChf = {};
+  filtered.forEach(r => {
+    const y = r._startYear;
+    if (!y || y < 1995 || y > 2024) return;
+    byCnt[y] = (byCnt[y]||0) + 1;
+    byChf[y] = (byChf[y]||0) + r._budget;
+  });
+  const years = Array.from({length:30},(_,i)=>1995+i);
+  charts.years = new Chart(document.getElementById('chart-years'), {
+    type: 'line',
+    data: {
+      labels: years,
+      datasets: [
+        { label: 'Projects', data: years.map(y=>byCnt[y]||0), borderColor:'#2E86C1', backgroundColor:'rgba(46,134,193,0.1)', yAxisID:'y', tension:0.3, fill:true },
+        { label: 'CHF (M)', data: years.map(y=>((byChf[y]||0)/1e6).toFixed(1)), borderColor:'#27AE60', backgroundColor:'rgba(39,174,96,0.05)', yAxisID:'y2', tension:0.3, borderDash:[5,3] },
+      ]
+    },
+    options: { responsive:true, maintainAspectRatio:false, scales: { y:{position:'left',title:{display:true,text:'Projects'}}, y2:{position:'right',title:{display:true,text:'CHF M'},grid:{drawOnChartArea:false}} }, plugins:{legend:{position:'top'}} }
+  });
+}
+
+function renderFunderChart() {
+  destroyChart('funders');
+  const counts = {};
+  filtered.forEach(r => { const f = r['Forschungsstelle']; counts[f]=(counts[f]||0)+1; });
+  const top = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,15);
+  const chfByFunder = {};
+  filtered.forEach(r => { chfByFunder[r['Forschungsstelle']]=(chfByFunder[r['Forschungsstelle']]||0)+r._budget; });
+  charts.funders = new Chart(document.getElementById('chart-funders'), {
+    type: 'bar',
+    data: {
+      labels: top.map(([f])=>f),
+      datasets: [{ label:'Projects', data: top.map(([,c])=>c), backgroundColor:'rgba(46,134,193,0.8)' }]
+    },
+    options: {
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{afterLabel: ctx => `CHF ${(chfByFunder[top[ctx.dataIndex][0]]||0/1e6).toLocaleString()}`}}
+      }
+    }
+  });
+}
+
+function renderSatwChart() {
+  destroyChart('satw');
+  const counts = {}, budgets = {};
+  filtered.forEach(r => r._satw.forEach(t => { counts[t]=(counts[t]||0)+1; budgets[t]=(budgets[t]||0)+r._budget; }));
+  const techs = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+  charts.satw = new Chart(document.getElementById('chart-satw'), {
+    type: 'bar',
+    data: {
+      labels: techs.map(([t])=> OVERHYPED_TECH.has(t) ? t+' ⚠️' : t),
+      datasets: [{ label:'Projects', data:techs.map(([,c])=>c), backgroundColor:techs.map(([t])=>satwColorForTech(t)+'CC') }]
+    },
+    options: {
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{callbacks:{afterLabel: ctx=>`CHF ${((budgets[techs[ctx.dataIndex][0]]||0)/1e6).toFixed(1)}M`}} }
+    }
+  });
+}
+
+function renderKeywordsChart() {
+  destroyChart('keywords');
+  const counts = {};
+  filtered.forEach(r => r._keywords.forEach(k => {
+    const kl = k.toLowerCase();
+    if (!EXCLUDED_KEYWORDS.has(kl) && kl.length > 2) counts[kl]=(counts[kl]||0)+1;
+  }));
+  const top = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,25);
+  charts.keywords = new Chart(document.getElementById('chart-keywords'), {
+    type: 'bar',
+    data: {
+      labels: top.map(([k])=>k),
+      datasets: [{ label:'Frequency', data:top.map(([,c])=>c), backgroundColor:'rgba(155,89,182,0.7)' }]
+    },
+    options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}} }
+  });
+}
+
+// ─── SATW FORESIGHT TAB ────────────────────────────────────────────────────
+function renderSatwTab() {
+  // Summary
+  const tagged = filtered.filter(r=>r._satw.length>0);
+  const budgets = {};
+  const yearlyByTech = {};
+  filtered.forEach(r => r._satw.forEach(t => {
+    budgets[t]=(budgets[t]||0)+r._budget;
+    if (!yearlyByTech[t]) yearlyByTech[t]={};
+    if (r._startYear) yearlyByTech[t][r._startYear]=(yearlyByTech[t][r._startYear]||0)+1;
+  }));
+  const topBudgetTech = Object.entries(budgets).sort((a,b)=>b[1]-a[1])[0];
+  // Fastest growing: compare 2020-2024 avg vs 2015-2019 avg
+  const techCounts = {};
+  filtered.forEach(r => r._satw.forEach(t => { techCounts[t]=(techCounts[t]||0)+1; }));
+  function growthRate(t) {
+    const yd = yearlyByTech[t]||{};
+    const recent = [2020,2021,2022,2023,2024].reduce((s,y)=>s+(yd[y]||0),0)/5;
+    const old = [2015,2016,2017,2018,2019].reduce((s,y)=>s+(yd[y]||0),0)/5;
+    return old > 0 ? (recent-old)/old : (recent > 0 ? 1 : 0);
+  }
+  const fastest = Object.keys(techCounts).sort((a,b)=>growthRate(b)-growthRate(a))[0];
+
+  document.getElementById('satw-summary').innerHTML = `
+    <div class="satw-summary-item"><div class="val">${tagged.length.toLocaleString()}</div><div class="lbl">SATW-tagged projects (${((tagged.length/Math.max(filtered.length,1))*100).toFixed(1)}%)</div></div>
+    <div class="satw-summary-item"><div class="val">${topBudgetTech ? escHtml(topBudgetTech[0]) : '—'}</div><div class="lbl">Most funded (${topBudgetTech ? chfCompact(topBudgetTech[1]) : '—'})</div></div>
+    <div class="satw-summary-item"><div class="val">${fastest ? escHtml(fastest) : '—'}</div><div class="lbl">Fastest growing 2020–2024</div></div>
+  `;
+
+  // Sections
+  let html = '';
+  for (const [field, { color, techs }] of Object.entries(SATW_FIELDS)) {
+    const fieldId = field.replace(/\s+/g,'_').replace(/[^a-zA-Z_]/g,'');
+    html += `<div class="satw-field-section">
+      <div class="satw-field-header" style="background:${color};" onclick="toggleSatwSection('${fieldId}')">
+        <span>${field}</span>
+        <span class="chevron">▼</span>
+      </div>
+      <div class="satw-field-content" id="satw-content-${fieldId}">
+        <table class="satw-table">
+          <thead><tr><th>Technology</th><th>Projects</th><th>CHF</th><th>Peak year</th><th>Trend</th><th>Top funders</th></tr></thead>
+          <tbody>
+            ${techs.map(tech => {
+              const rows2 = filtered.filter(r=>r._satw.includes(tech));
+              if (!rows2.length) return `<tr><td>${escHtml(tech)}${OVERHYPED_TECH.has(tech)?` <span title="May be over-represented due to broad keyword matching" style="color:var(--conf-mid);">⚠️</span>`:''}
+                </td><td>0</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>`;
+              const chfT = rows2.reduce((s,r)=>s+r._budget,0);
+              const yd = yearlyByTech[tech]||{};
+              const peakY = Object.entries(yd).sort((a,b)=>b[1]-a[1])[0];
+              const gr = growthRate(tech);
+              const trend = gr > 0.1 ? `<span class="trend-up">↑</span>` : gr < -0.1 ? `<span class="trend-down">↓</span>` : `<span class="trend-flat">→</span>`;
+              const funderCts = {};
+              rows2.forEach(r=>{funderCts[r['Forschungsstelle']]=(funderCts[r['Forschungsstelle']]||0)+1;});
+              const topF = Object.entries(funderCts).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([f])=>f).join(', ');
+              const rowId = fieldId+'_'+tech.replace(/\s+/g,'_').replace(/[^a-zA-Z_]/g,'');
+              return `<tr class="clickable" onclick="toggleSatwTech('${rowId}', '${tech.replace(/'/g,"\\'")}')">
+                <td>${escHtml(tech)}${OVERHYPED_TECH.has(tech)?` <span title="May be over-represented" style="color:var(--conf-mid);">⚠️</span>`:''}</td>
+                <td>${rows2.length.toLocaleString()}</td>
+                <td>${chfCompact(chfT)}</td>
+                <td>${peakY ? peakY[0] : '—'}</td>
+                <td>${trend}</td>
+                <td>${escHtml(topF)}</td>
+              </tr>
+              <tr id="satw-detail-${rowId}" style="display:none;"><td colspan="6" style="padding:0;">
+                <div class="satw-tech-detail" id="satw-detail-inner-${rowId}"></div>
+              </td></tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  }
+  document.getElementById('satw-sections').innerHTML = html;
+}
+
+function toggleSatwSection(id) {
+  const content = document.getElementById('satw-content-'+id);
+  const header = content.previousElementSibling;
+  content.classList.toggle('open');
+  header.classList.toggle('open');
+}
+
+function toggleSatwTech(rowId, tech) {
+  const detailRow = document.getElementById('satw-detail-'+rowId);
+  if (detailRow.style.display === 'none') {
+    detailRow.style.display = '';
+    renderSatwTechDetail(rowId, tech);
+  } else {
+    detailRow.style.display = 'none';
+  }
+}
+
+function renderSatwTechDetail(rowId, tech) {
+  const techRows = filtered.filter(r=>r._satw.includes(tech));
+  // yearly counts
+  const yd = {};
+  techRows.forEach(r=>{ if(r._startYear){yd[r._startYear]=(yd[r._startYear]||0)+1;} });
+  const years = Array.from({length:30},(_,i)=>1995+i);
+  // top funders
+  const fc={},ic={};
+  techRows.forEach(r=>{
+    fc[r['Forschungsstelle']]=(fc[r['Forschungsstelle']]||0)+1;
+    if(r._institution)ic[r._institution]=(ic[r._institution]||0)+1;
+  });
+  const topF=Object.entries(fc).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const topI=Object.entries(ic).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const samples = techRows.slice(0,3);
+
+  const inner = document.getElementById('satw-detail-inner-'+rowId);
+  inner.innerHTML = `
+    <h4>${escHtml(tech)} — detail</h4>
+    <div class="mini-chart-wrap"><canvas id="mini-${rowId}"></canvas></div>
+    <div class="satw-top-list">
+      <div class="satw-top-col"><h5>Top funders</h5><ul>${topF.map(([f,c])=>`<li>${escHtml(f)} (${c})</li>`).join('')}</ul></div>
+      <div class="satw-top-col"><h5>Top institutions</h5><ul>${topI.map(([i,c])=>`<li>${escHtml(i)} (${c})</li>`).join('')}</ul></div>
+    </div>
+    <h5 style="font-size:11px;text-transform:uppercase;color:var(--text-sec);font-weight:700;margin-bottom:8px;">Sample projects</h5>
+    <div class="satw-sample-cards">${samples.map(r=>`
+      <div style="background:white;border:1px solid var(--border);border-radius:8px;padding:10px;cursor:pointer;" onclick="openModal(${filtered.indexOf(r)})">
+        <div style="font-size:11px;color:var(--text-sec);margin-bottom:4px;">${escHtml(r['Forschungsstelle']||'')} · ${r._startYear||'—'}</div>
+        <div style="font-size:12px;font-weight:600;line-height:1.4;">${escHtml((r['Projekttitel englisch']||r['Projekttitel deutsch']||'').substring(0,80))}${(r['Projekttitel englisch']||r['Projekttitel deutsch']||'').length>80?'…':''}</div>
+      </div>`).join('')}
+    </div>
+  `;
+  // mini chart
+  new Chart(document.getElementById('mini-'+rowId), {
+    type:'bar',
+    data:{ labels:years, datasets:[{label:'Projects',data:years.map(y=>yd[y]||0),backgroundColor:satwColorForTech(tech)+'BB'}] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{maxRotation:45,autoSkip:true,maxTicksLimit:10}}} }
+  });
+}
+
+// ─── SEARCH ─────────────────────────────────────────────────────────────────
+let searchTimer = null;
+function onSearchInput() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    appState.searchQuery = document.getElementById('search-input').value.trim();
+    appState.page = 1;
+    if (appState.searchMode === 'ai' && appState.searchQuery) {
+      runAiSearch();
+    } else {
+      render();
+    }
+  }, 300);
+}
+document.getElementById('search-input').addEventListener('input', onSearchInput);
+document.getElementById('search-input').addEventListener('keydown', e => { if(e.key==='Enter') { clearTimeout(searchTimer); onSearchInput(); } });
+
+function setMode(mode) {
+  appState.searchMode = mode;
+  document.getElementById('mode-keyword').classList.toggle('active', mode==='keyword');
+  document.getElementById('mode-ai').classList.toggle('active', mode==='ai');
+  if (mode==='keyword') {
+    appState.aiTerms=[];
+    document.getElementById('ai-expanded').style.display='none';
+  }
+  if (appState.searchQuery) { appState.page=1; render(); }
+}
+
+async function runAiSearch() {
+  const q = appState.searchQuery;
+  if (!q) return;
+  document.getElementById('ai-notice').textContent = '✨ Expanding search with AI…';
+  document.getElementById('ai-expanded').style.display='block';
+  document.getElementById('ai-chips').innerHTML='';
+  try {
+    if (!MISTRAL_API_KEY || MISTRAL_API_KEY === 'PASTE_YOUR_FREE_TIER_KEY_HERE') throw new Error('No API key');
+    const resp = await fetch('https://api.mistral.ai/v1/chat/completions', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+MISTRAL_API_KEY},
+      body: JSON.stringify({
+        model:'mistral-small-latest',
+        messages:[
+          {role:'system',content:'You are a search assistant for a Swiss public research funding database. Given a user query, return ONLY a JSON array of 6-10 English keyword strings and their synonyms that would match relevant projects. Include technical synonyms and key German/French terms where applicable. No preamble, no markdown, just the JSON array.'},
+          {role:'user',content:q}
+        ],
+        temperature:0.3
+      })
+    });
+    if (!resp.ok) throw new Error('API error '+resp.status);
+    const data = await resp.json();
+    const text = data.choices[0].message.content.trim();
+    const terms = JSON.parse(text);
+    if (!Array.isArray(terms)) throw new Error('Not an array');
+    appState.aiTerms = terms;
+    document.getElementById('ai-notice').textContent = `AI expanded your search to:`;
+    document.getElementById('ai-chips').innerHTML = terms.map(t=>`<span class="ai-chip">${escHtml(t)}</span>`).join('');
+    render();
+  } catch(e) {
+    appState.aiTerms = [];
+    document.getElementById('ai-notice').textContent = `AI unavailable — using keyword mode. (${e.message})`;
+    document.getElementById('ai-chips').innerHTML = '';
+    appState.searchMode = 'keyword';
+    render();
+  }
+}
+
+// ─── FILTER EVENTS ──────────────────────────────────────────────────────────
+function onFilterChange() {
+  appState.filters.status = document.querySelector('input[name=status]:checked')?.value || 'all';
+  appState.filters.confMin = parseFloat(document.getElementById('conf-slider').value) || 0;
+  appState.filters.onlySatw = document.getElementById('only-satw').checked;
+  appState.filters.instType = document.querySelector('input[name=inst-type]:checked')?.value || 'all';
+  const cv = appState.filters.confMin;
+  document.getElementById('conf-val').textContent = cv === 0 ? 'Threshold: 0.0 — showing all' : `Threshold: ${cv.toFixed(2)}`;
+  appState.page = 1;
+  render();
+}
+
+function onYearChange() {
+  let min = parseInt(document.getElementById('year-min').value);
+  let max = parseInt(document.getElementById('year-max').value);
+  if (min > max) { [min, max] = [max, min]; }
+  appState.filters.yearMin = min;
+  appState.filters.yearMax = max;
+  document.getElementById('year-min-lbl').textContent = min;
+  document.getElementById('year-max-lbl').textContent = max;
+  updateYearFill();
+  appState.page = 1;
+  render();
+}
+
+function updateYearFill() {
+  const slider = document.querySelector('.dual-range');
+  const min = parseInt(document.getElementById('year-min').value);
+  const max = parseInt(document.getElementById('year-max').value);
+  const pMin = ((min-1990)/(2027-1990))*100;
+  const pMax = ((max-1990)/(2027-1990))*100;
+  document.getElementById('year-fill').style.left = pMin+'%';
+  document.getElementById('year-fill').style.width = (pMax-pMin)+'%';
+}
+
+function onSortChange() {
+  appState.sortBy = document.getElementById('sort-select').value;
+  appState.page = 1;
+  render();
+}
+
+function resetFilters() {
+  appState.filters.funders.clear();
+  appState.filters.status = 'all';
+  appState.filters.yearMin = 1990;
+  appState.filters.yearMax = 2027;
+  appState.filters.confMin = 0;
+  appState.filters.satwFields.clear();
+  appState.filters.onlySatw = false;
+  appState.filters.cantons.clear();
+  appState.filters.instType = 'all';
+  appState.searchQuery = '';
+  appState.aiTerms = [];
+  document.getElementById('search-input').value = '';
+  document.getElementById('ai-expanded').style.display='none';
+  document.querySelector('input[name=status][value=all]').checked = true;
+  document.getElementById('year-min').value = 1990;
+  document.getElementById('year-max').value = 2027;
+  document.getElementById('year-min-lbl').textContent = '1990';
+  document.getElementById('year-max-lbl').textContent = '2027';
+  document.getElementById('conf-slider').value = 0;
+  document.getElementById('conf-val').textContent = 'Threshold: 0.0 — showing all';
+  document.getElementById('only-satw').checked = false;
+  document.querySelector('input[name=inst-type][value=all]').checked = true;
+  updateYearFill();
+  renderFunderList();
+  renderCantonList();
+  renderSatwFieldList();
+  appState.page = 1;
+  render();
+}
+
+// ─── TAB SWITCHING ──────────────────────────────────────────────────────────
+let currentTab = 'results';
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+tab).classList.add('active');
+  document.querySelectorAll('.tab-btn').forEach(b=>{ if(b.textContent.toLowerCase().includes(tab==='satw'?'satw':tab)) b.classList.add('active'); });
+  if (tab==='statistics') renderStatistics();
+  if (tab==='satw') renderSatwTab();
+}
+
+// ─── URL HASH STATE ─────────────────────────────────────────────────────────
+function updateHash() {
+  const params = new URLSearchParams();
+  if (appState.searchQuery) params.set('q', appState.searchQuery);
+  if (appState.filters.funders.size) params.set('funders', [...appState.filters.funders].join(','));
+  if (appState.filters.status !== 'all') params.set('status', appState.filters.status);
+  if (appState.filters.yearMin !== 1990) params.set('ymin', appState.filters.yearMin);
+  if (appState.filters.yearMax !== 2027) params.set('ymax', appState.filters.yearMax);
+  if (appState.filters.confMin > 0) params.set('conf', appState.filters.confMin);
+  if (appState.filters.cantons.size) params.set('cantons', [...appState.filters.cantons].join(','));
+  if (appState.filters.satwFields.size) params.set('satw', [...appState.filters.satwFields].join('|'));
+  if (appState.filters.onlySatw) params.set('onlysatw','1');
+  if (appState.page > 1) params.set('page', appState.page);
+  const s = params.toString();
+  history.replaceState(null,'', s ? '#'+s : location.pathname);
+}
+
+function loadHash() {
+  const hash = location.hash.slice(1);
+  if (!hash) return;
+  const params = new URLSearchParams(hash);
+  if (params.get('q')) { appState.searchQuery = params.get('q'); document.getElementById('search-input').value = appState.searchQuery; }
+  if (params.get('funders')) params.get('funders').split(',').forEach(f=>appState.filters.funders.add(f));
+  if (params.get('status')) appState.filters.status = params.get('status');
+  if (params.get('ymin')) appState.filters.yearMin = parseInt(params.get('ymin'));
+  if (params.get('ymax')) appState.filters.yearMax = parseInt(params.get('ymax'));
+  if (params.get('conf')) appState.filters.confMin = parseFloat(params.get('conf'));
+  if (params.get('cantons')) params.get('cantons').split(',').forEach(c=>appState.filters.cantons.add(c));
+  if (params.get('satw')) params.get('satw').split('|').forEach(f=>appState.filters.satwFields.add(f));
+  if (params.get('onlysatw')) appState.filters.onlySatw = true;
+  if (params.get('page')) appState.page = parseInt(params.get('page'));
+  // Sync UI controls
+  if (appState.filters.status !== 'all') {
+    const r = document.querySelector(`input[name=status][value=${appState.filters.status}]`);
+    if (r) r.checked = true;
+  }
+  document.getElementById('year-min').value = appState.filters.yearMin;
+  document.getElementById('year-max').value = appState.filters.yearMax;
+  document.getElementById('year-min-lbl').textContent = appState.filters.yearMin;
+  document.getElementById('year-max-lbl').textContent = appState.filters.yearMax;
+  document.getElementById('conf-slider').value = appState.filters.confMin;
+  if (appState.filters.onlySatw) document.getElementById('only-satw').checked = true;
+  updateYearFill();
+}
+
+// ─── MAIN RENDER ────────────────────────────────────────────────────────────
+function render() {
+  applyFilters();
+  sortFiltered();
+  renderStats();
+  renderCards();
+  if (currentTab === 'statistics') renderStatistics();
+  if (currentTab === 'satw') renderSatwTab();
+  updateHash();
+}
+
+// ─── MOBILE SIDEBAR ─────────────────────────────────────────────────────────
+document.getElementById('sidebar-toggle').onclick = () => {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebar-overlay').classList.toggle('open');
+};
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('open');
+}
+
+// ─── UTILS ──────────────────────────────────────────────────────────────────
+function escHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ─── BOOT ────────────────────────────────────────────────────────────────────
+window.addEventListener('load', async () => {
+  setLoadStatus('Fetching CSV…', 10);
+  let csvText;
+  try {
+    const resp = await fetch('./aramis_enriched_full.csv');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    setLoadStatus('Downloading data…', 30);
+    csvText = await resp.text();
+  } catch(e) {
+    document.getElementById('load-status').textContent = 'Error loading CSV: ' + e.message;
+    return;
+  }
+  setLoadStatus('Parsing CSV…', 55);
+  await new Promise(r => setTimeout(r, 0));
+  const result = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+  rows = result.data;
+  setLoadStatus(`Indexing ${rows.length.toLocaleString()} projects…`, 75);
+  await new Promise(r => setTimeout(r, 0));
+  index = buildIndex(rows);
+  setLoadStatus('Building filters…', 90);
+  await new Promise(r => setTimeout(r, 0));
+  // Build sidebar filters
+  renderFunderList();
+  renderCantonList();
+  renderSatwFieldList();
+  updateYearFill();
+  // Load URL state
+  loadHash();
+  setLoadStatus('Ready!', 100);
+  await new Promise(r => setTimeout(r, 200));
+  // Show app
+  document.getElementById('loading-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  render();
+});
+</script>
+</body>
+</html>
