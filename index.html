@@ -746,6 +746,17 @@ function extractContact(kontakt) {
   return { institution, canton, isCompany, isFederal, isUni };
 }
 
+// For CORDIS rows, the "contact/institution" is the Swiss beneficiary
+// organisation listed in swiss_organisations (no postal address → no canton).
+function extractCordisContact(swissOrgs) {
+  const institution = (swissOrgs || '').split(';')[0].trim();
+  if (!institution) return { institution: '', canton: null, isCompany: false, isFederal: false, isUni: false };
+  const isUni = UNI_KEYWORDS.some(k => institution.includes(k));
+  const isCompany = !isUni && COMPANY_SUFFIXES.some(s => institution.includes(s));
+  const isFederal = FEDERAL_KEYWORDS.some(k => institution.includes(k));
+  return { institution, canton: null, isCompany, isFederal, isUni };
+}
+
 // ─── APP STATE ──────────────────────────────────────────────────────────────
 let rows = [];        // raw parsed rows
 let index = [];       // enriched index
@@ -794,7 +805,9 @@ function setLoadStatus(msg, pct) {
 function buildIndex(data) {
   setLoadStatus('Building search index…', 80);
   return data.map(row => {
-    const contact = extractContact(row['Kontaktperson'] || '');
+    const contact = row.source === 'CORDIS'
+      ? extractCordisContact(row['swiss_organisations'] || '')
+      : extractContact(row['Kontaktperson'] || '');
     const satw = (row['satw_2025'] || '').split(';').map(s => s.trim()).filter(Boolean);
     const keywords = (row['keywords'] || '').split(';').map(s => s.trim()).filter(Boolean);
     const conf = parseFloat(row['confidence']) || 0;
@@ -1110,6 +1123,7 @@ function openModal(idx) {
     <h2>${isCordis ? '🇪🇺 ' : '🇨🇭 '}${escHtml(row['Projekttitel englisch'] || row['Projekttitel deutsch'] || '(no title)')}</h2>
     <div class="modal-grid">
       <div class="modal-field"><label>Funder</label><p>${escHtml(row['Forschungsstelle']||'—')}</p></div>
+      ${isCordis ? `<div class="modal-field"><label>Swiss institution</label><p>${escHtml(row['swiss_organisations']||'—')}</p></div>` : ''}
       <div class="modal-field"><label>Project No.</label><p>${escHtml(num)}</p></div>
       <div class="modal-field"><label>Status</label><p>${escHtml(row['Projektstatus']||'—')}</p></div>
       <div class="modal-field"><label>Start</label><p>${row['Projektstart']||'—'}</p></div>
@@ -1775,6 +1789,7 @@ window.addEventListener('load', async () => {
       source: 'CORDIS',
       abstract_en: r['objective'] || r['Kurzbeschreibung'] || '',
       Kurzbeschreibung: '',
+      Forschungsstelle: 'European Commission (Horizon Europe)',
     }));
     rows = rows.concat(cordisRows);
   }

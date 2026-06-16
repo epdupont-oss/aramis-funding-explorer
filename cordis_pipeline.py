@@ -414,7 +414,10 @@ def main():
             "participant_countries": meta.get("participant_countries", ""),
             "cordis_url":            f"{BASE_URL}/project/rcn/{rcn}" if rcn else "",
             # ARAMIS-compatible aliases
-            "Forschungsstelle":            meta.get("swiss_organisations", ""),
+            # NB: "Forschungsstelle" maps to the ARAMIS "Funder" badge/filter —
+            # for CORDIS that's the EU programme, NOT the Swiss beneficiary
+            # (which lives in swiss_organisations and is shown as the institution).
+            "Forschungsstelle":            "European Commission (Horizon Europe)",
             "Projektnummer":               pid,
             "Projekttitel englisch":       title,
             "Kurzbeschreibung":            objective[:500],
