@@ -80,14 +80,27 @@ header {
   font-size: 12px; font-weight: 600; transition: all 0.2s; background: none; color: var(--text-sec);
 }
 .mode-btn.active { background: var(--primary-mid); color: white; }
-.source-toggle {
-  display: flex; gap: 4px; background: var(--bg); border-radius: 20px; padding: 2px; border: 1px solid var(--border);
+#source-selector {
+  display: flex; justify-content: center; align-items: stretch;
+  padding: 12px 24px; gap: 0; background: white; border-bottom: 1px solid var(--border);
 }
-.source-btn {
-  font-size: 16px; line-height: 1; padding: 4px 8px; border-radius: 16px; border: none; cursor: pointer;
-  background: none; opacity: 0.35; filter: grayscale(1); transition: all 0.2s;
+.src-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 11px 44px; border: 1.5px solid var(--border); background: var(--bg);
+  cursor: pointer; font-family: inherit; transition: all 0.15s; color: var(--text-sec);
+  min-width: 150px;
 }
-.source-btn.active { opacity: 1; filter: none; background: var(--primary-light); }
+.src-btn:first-child { border-radius: 10px 0 0 10px; }
+.src-btn:last-child  { border-radius: 0 10px 10px 0; }
+.src-btn:nth-child(2){ border-left: none; border-right: none; }
+.src-flag  { font-size: 22px; line-height: 1.3; }
+.src-label { font-size: 15px; font-weight: 700; color: var(--text); }
+.src-desc  { font-size: 11px; color: var(--text-sec); }
+.src-btn.active { background: var(--primary-dark); border-color: var(--primary-dark); }
+.src-btn.active .src-label,
+.src-btn.active .src-desc,
+.src-btn.active .src-flag { color: white !important; }
+.src-btn:not(.active):hover { background: var(--primary-light); border-color: var(--primary-mid); }
 .search-hint { font-size: 12px; color: var(--text-sec); }
 .ai-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .ai-chip {
@@ -442,6 +455,25 @@ footer a { color: rgba(255,255,255,0.8); }
   </div>
 </header>
 
+<!-- SOURCE SELECTOR -->
+<div id="source-selector">
+  <button class="src-btn active" id="src-aramis" onclick="setSource('ARAMIS')">
+    <span class="src-flag">🇨🇭</span>
+    <span class="src-label">ARAMIS</span>
+    <span class="src-desc">Swiss federal funding</span>
+  </button>
+  <button class="src-btn" id="src-both" onclick="setSource('BOTH')">
+    <span class="src-flag">🇨🇭 🇪🇺</span>
+    <span class="src-label">Both databases</span>
+    <span class="src-desc">All sources</span>
+  </button>
+  <button class="src-btn" id="src-cordis" onclick="setSource('CORDIS')">
+    <span class="src-flag">🇪🇺</span>
+    <span class="src-label">CORDIS</span>
+    <span class="src-desc">EU Horizon Europe</span>
+  </button>
+</div>
+
 <!-- SEARCH BAR -->
 <div id="search-bar">
   <div class="search-row">
@@ -450,10 +482,6 @@ footer a { color: rgba(255,255,255,0.8); }
       <button class="mode-btn" id="mode-keyword" onclick="setMode('keyword')">Keyword only</button>
       <button class="mode-btn active" id="mode-ai" onclick="setMode('ai')">✨ AI search</button>
       <a href="https://console.mistral.ai/api-keys" target="_blank" style="font-size:11px;color:var(--text-sec);white-space:nowrap;text-decoration:underline;margin-left:4px;">Get free API key</a>
-    </div>
-    <div class="source-toggle" id="source-toggle" title="Filter by data source">
-      <button class="source-btn active" id="source-aramis" onclick="toggleSource('ARAMIS')" title="Swiss national funding (ARAMIS)">🇨🇭</button>
-      <button class="source-btn active" id="source-cordis" onclick="toggleSource('CORDIS')" title="EU Horizon Europe funding (CORDIS) — Swiss participants">🇪🇺</button>
     </div>
   </div>
   <div id="search-hint" class="search-hint" style="display:none;"></div>
@@ -826,17 +854,25 @@ const appState = {
     onlySatw: false,
     cantons: new Set(),
     instType: 'all',
-    sources: new Set(['ARAMIS', 'CORDIS']),
+    sources: new Set(['ARAMIS']),
   }
 };
 
-function toggleSource(src) {
+function setSource(mode) {
   const s = appState.filters.sources;
-  if (s.has(src)) s.delete(src); else s.add(src);
-  document.getElementById('source-aramis').classList.toggle('active', s.has('ARAMIS'));
-  document.getElementById('source-cordis').classList.toggle('active', s.has('CORDIS'));
+  s.clear();
+  if (mode === 'ARAMIS' || mode === 'BOTH') s.add('ARAMIS');
+  if (mode === 'CORDIS' || mode === 'BOTH') s.add('CORDIS');
+  syncSourceUI();
   appState.page = 1;
   render();
+}
+function syncSourceUI() {
+  const hasA = appState.filters.sources.has('ARAMIS');
+  const hasC = appState.filters.sources.has('CORDIS');
+  document.getElementById('src-aramis').classList.toggle('active', hasA && !hasC);
+  document.getElementById('src-both').classList.toggle('active', hasA && hasC);
+  document.getElementById('src-cordis').classList.toggle('active', !hasA && hasC);
 }
 
 // ─── LOADING ────────────────────────────────────────────────────────────────
@@ -865,7 +901,10 @@ function buildIndex(data) {
       row['Projekttitel französisch'], row['Projekttitel italienisch'],
       row['Forschungsstelle'], contact.institution
     ].join(' ').toLowerCase();
+    // parseWirtPartners is kept solely for canton extraction (map layer)
     const wirtPartners = row.source === 'ARAMIS' ? parseWirtPartners(row['wirtschaftspartner'] || '') : [];
+    const wirtCanonical = (row['wirt_company_canonical'] || '').trim();
+    const wirtPerson    = (row['wirt_person_name']    || '').trim();
     return {
       ...row,
       _conf: conf, _budget: budget, _startYear: startYear, _endYear: endYear, _year: year,
@@ -875,6 +914,8 @@ function buildIndex(data) {
       _hasAbstract: (row['abstract_en'] || '').trim() !== 'No abstract available.' && (row['abstract_en'] || '').trim() !== '',
       _wirt_partners: wirtPartners,
       _wirt_canton: wirtPartners.length ? wirtPartners[0].canton : null,
+      _wirt_canonical: wirtCanonical,
+      _wirt_person:    wirtPerson,
     };
   });
 }
@@ -1082,8 +1123,7 @@ function renderPartnerPanel() {
   if (!el) return;
   const counts = {}, uidUrls = {};
   filtered.forEach(r => {
-    if (!r._wirt_partners || !r._wirt_partners.length) return;
-    const name = r._wirt_partners[0].displayName;
+    const name = r._wirt_canonical;
     if (!name) return;
     counts[name] = (counts[name] || 0) + 1;
     if (!uidUrls[name] && r['wirt_uid_url']) uidUrls[name] = r['wirt_uid_url'];
@@ -1158,12 +1198,11 @@ function buildCard(row, idx) {
 
   const sourceFlag = row.source === 'CORDIS' ? '🇪🇺' : '🇨🇭';
   let partnerChipHtml = '';
-  if (row._wirt_partners && row._wirt_partners.length) {
-    const p = row._wirt_partners[0];
+  if (row._wirt_canonical) {
     const url = row['wirt_uid_url']
       ? row['wirt_uid_url']
-      : `https://www.google.com/search?q=${encodeURIComponent(p.displayName + ' Schweiz')}`;
-    partnerChipHtml = `<a class="partner-chip" href="${escHtml(url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Implementation partner">🏭 ${escHtml(p.displayName)}</a>`;
+      : `https://www.google.com/search?q=${encodeURIComponent(row._wirt_canonical + ' Schweiz')}`;
+    partnerChipHtml = `<a class="partner-chip" href="${escHtml(url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Implementation partner">🏭 ${escHtml(row._wirt_canonical)}</a>`;
   }
   return `<div class="project-card" onclick="openModal(${JSON.stringify(idx).replace(/"/g,'&quot;')})">
     <div class="card-meta">
@@ -1214,32 +1253,68 @@ function goPage(p) { appState.page = p; renderCards(); document.getElementById('
 
 // ─── MODAL ──────────────────────────────────────────────────────────────────
 function renderWirtschaftspartner(row) {
-  const partners = row._wirt_partners || [];
-  if (!partners.length) return '';
-  const uidUrl = row['wirt_uid_url'] || '';
+  const uidUrl   = row['wirt_uid_url'] || '';
   const topEmail = row['wirt_email'] || '';
+  const canonical = row._wirt_canonical || '';
+  const person    = row._wirt_person || '';
+
+  // Collect all raw blocks for address/email detail lines and extra partners
+  const blocks = (row['wirtschaftspartner'] || '').split(' ||| ').map(b => b.trim()).filter(Boolean);
+  if (!blocks.length && !canonical) return '';
+
   let html = '';
-  partners.forEach((p, i) => {
-    const url = (i === 0 && uidUrl)
-      ? uidUrl
-      : `https://www.google.com/search?q=${encodeURIComponent(p.displayName + ' Schweiz')}`;
-    if (i > 0) html += `<hr style="border:none;border-top:1px solid var(--border);margin:6px 0;">`;
+
+  // ── First partner: canonical company + person + detail lines from raw block ──
+  const url = uidUrl
+    ? uidUrl
+    : canonical ? `https://www.google.com/search?q=${encodeURIComponent(canonical + ' Schweiz')}` : '';
+
+  html += `<p style="font-size:12px;line-height:1.8;margin:0;">`;
+  if (canonical) {
+    html += `<a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--primary-mid);font-weight:600;text-decoration:none;">${escHtml(canonical)}</a>`;
+  }
+  if (person) {
+    html += `<br><span style="color:var(--text-sec);">${escHtml(person)}</span>`;
+  }
+  // Address / email detail lines from the first raw block
+  if (blocks.length) {
+    const lines = blocks[0].split('\n').map(l => l.trim()).filter(Boolean);
+    // Skip lines already represented by canonical or person; show address/email/phone
+    const skipRe = canonical ? new RegExp(canonical.substring(0, 6).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') : null;
+    lines.forEach(line => {
+      if (skipRe && skipRe.test(line)) return;  // already shown as company name
+      if (line.includes('@')) {
+        html += `<br><a href="mailto:${escHtml(line)}" style="color:var(--primary-mid);">${escHtml(line)}</a>`;
+      } else if (/CH-\d{4}|^\d|Strasse|strasse|gasse|weg|platz|allee/i.test(line)) {
+        html += `<br><span style="color:var(--text-sec);">${escHtml(line)}</span>`;
+      }
+    });
+    if (topEmail && !lines.some(l => l.includes('@'))) {
+      html += `<br><a href="mailto:${escHtml(topEmail)}" style="color:var(--primary-mid);">${escHtml(topEmail)}</a>`;
+    }
+  }
+  html += `</p>`;
+
+  // ── Additional partners (index > 0): raw block rendering ──────────────────
+  blocks.slice(1).forEach(block => {
+    const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
+    if (!lines.length) return;
+    const pName = lines[0];
+    const pUrl = `https://www.google.com/search?q=${encodeURIComponent(pName + ' Schweiz')}`;
+    html += `<hr style="border:none;border-top:1px solid var(--border);margin:6px 0;">`;
     html += `<p style="font-size:12px;line-height:1.8;margin:0;">`;
-    const lines = p.block.split('\n').map(l => l.trim()).filter(Boolean);
     lines.forEach((line, li) => {
       if (li === 0) {
-        html += `<a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--primary-mid);font-weight:600;text-decoration:none;">${escHtml(line)}</a>`;
+        html += `<a href="${escHtml(pUrl)}" target="_blank" rel="noopener" style="color:var(--primary-mid);font-weight:600;text-decoration:none;">${escHtml(line)}</a>`;
       } else if (line.includes('@')) {
         html += `<br><a href="mailto:${escHtml(line)}" style="color:var(--primary-mid);">${escHtml(line)}</a>`;
       } else {
         html += `<br><span style="color:var(--text-sec);">${escHtml(line)}</span>`;
       }
     });
-    if (i === 0 && topEmail && !lines.some(l => l.includes('@'))) {
-      html += `<br><a href="mailto:${escHtml(topEmail)}" style="color:var(--primary-mid);">${escHtml(topEmail)}</a>`;
-    }
     html += `</p>`;
   });
+
   return html;
 }
 
@@ -1809,7 +1884,8 @@ function updateHash() {
   if (appState.filters.cantons.size) params.set('cantons', [...appState.filters.cantons].join(','));
   if (appState.filters.satwFields.size) params.set('satw', [...appState.filters.satwFields].join('|'));
   if (appState.filters.onlySatw) params.set('onlysatw','1');
-  if (appState.filters.sources.size !== 2) params.set('sources', [...appState.filters.sources].join(','));
+  const _src = appState.filters.sources;
+  if (!(_src.size === 1 && _src.has('ARAMIS'))) params.set('src', _src.size === 2 ? 'BOTH' : [..._src][0] || 'ARAMIS');
   if (appState.page > 1) params.set('page', appState.page);
   const s = params.toString();
   history.replaceState(null,'', s ? '#'+s : location.pathname);
@@ -1828,10 +1904,12 @@ function loadHash() {
   if (params.get('cantons')) params.get('cantons').split(',').forEach(c=>appState.filters.cantons.add(c));
   if (params.get('satw')) params.get('satw').split('|').forEach(f=>appState.filters.satwFields.add(f));
   if (params.get('onlysatw')) appState.filters.onlySatw = true;
-  if (params.get('sources')) {
-    appState.filters.sources = new Set(params.get('sources').split(',').filter(Boolean));
-    document.getElementById('source-aramis').classList.toggle('active', appState.filters.sources.has('ARAMIS'));
-    document.getElementById('source-cordis').classList.toggle('active', appState.filters.sources.has('CORDIS'));
+  if (params.get('src') || params.get('sources')) {
+    const val = params.get('src') || params.get('sources');
+    const isBoth = val === 'BOTH' || (val.includes('ARAMIS') && val.includes('CORDIS'));
+    const isCordis = !isBoth && val.includes('CORDIS');
+    appState.filters.sources = new Set(isBoth ? ['ARAMIS','CORDIS'] : isCordis ? ['CORDIS'] : ['ARAMIS']);
+    syncSourceUI();
   }
   if (params.get('page')) appState.page = parseInt(params.get('page'));
   // Sync UI controls
@@ -1861,7 +1939,8 @@ function renderActiveFilters() {
   if (f.cantons.size) pills.push({ label: `Cantons: ${[...f.cantons].join(', ')}`, clear: () => { f.cantons.clear(); document.querySelectorAll('.canton-cb').forEach(c=>c.checked=false); } });
   if (f.instType !== 'all') pills.push({ label: `Inst: ${f.instType}`, clear: () => { f.instType='all'; document.querySelector('input[name=inst-type][value=all]').checked=true; } });
   if (f.onlySatw) pills.push({ label: 'SATW only', clear: () => { f.onlySatw=false; document.getElementById('only-satw').checked=false; } });
-  if (f.sources.size !== 2) pills.push({ label: `Source: ${[...f.sources].map(s=>s==='ARAMIS'?'🇨🇭 ARAMIS':'🇪🇺 CORDIS').join(', ') || 'none'}`, clear: () => { f.sources = new Set(['ARAMIS','CORDIS']); document.getElementById('source-aramis').classList.add('active'); document.getElementById('source-cordis').classList.add('active'); } });
+  { const _s=f.sources, _both=_s.size===2, _aramis=_s.size===1&&_s.has('ARAMIS');
+    if (!_aramis) pills.push({ label: `Database: ${_both?'🇨🇭🇪🇺 Both':'🇪🇺 CORDIS only'}`, clear: () => { f.sources=new Set(['ARAMIS']); syncSourceUI(); } }); }
   const el = document.getElementById('active-filters');
   el.innerHTML = pills.map((p,i) =>
     `<span class="active-filter-pill">${escHtml(p.label)}<button onclick="clearPill(${i})" title="Remove">×</button></span>`
