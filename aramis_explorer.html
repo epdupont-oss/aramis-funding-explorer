@@ -903,7 +903,8 @@ function buildIndex(data) {
     ].join(' ').toLowerCase();
     // parseWirtPartners is kept solely for canton extraction (map layer)
     const wirtPartners = row.source === 'ARAMIS' ? parseWirtPartners(row['wirtschaftspartner'] || '') : [];
-    const wirtCanonical = (row['wirt_company_canonical'] || '').trim();
+    const _wirtRaw   = (row['wirt_company_canonical'] || '').trim();
+    const wirtCanonical = _wirtRaw === 'Nonexisting AG' ? '' : _wirtRaw;
     const wirtPerson    = (row['wirt_person_name']    || '').trim();
     return {
       ...row,
