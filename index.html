@@ -51,7 +51,8 @@ header {
   position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 .header-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.header-title h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
+.header-title h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; cursor: pointer; }
+.header-title h1:hover { opacity: 0.85; }
 .header-title p { font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 2px; }
 .stat-cards { display: flex; gap: 12px; flex-wrap: wrap; }
 .stat-card {
@@ -440,7 +441,7 @@ footer a { color: rgba(255,255,255,0.8); }
 <header>
   <div class="header-top">
     <div class="header-title">
-      <h1>ARAMIS (& CORDIS) Swiss Explorer</h1>
+      <h1 onclick="resetAll()" title="Reset all filters">ARAMIS (& CORDIS) Swiss Explorer</h1>
       <p>Swiss Public Research Funding · Federal Administration and EU Horizon Databases · <a href="#disclaimer" style="color:rgba(255,200,100,0.9);text-decoration:underline;font-weight:600;">⚠ Read this first</a> · <a href="mailto:epdupont@gmail.com" style="color:rgba(255,255,255,0.5);font-size:11px;">feedback?</a></p>
     </div>
     <div style="display:flex;gap:8px;align-items:flex-start;">
@@ -854,6 +855,7 @@ const appState = {
     onlySatw: false,
     cantons: new Set(),
     instType: 'all',
+    partnerFilter: null,
     sources: new Set(['ARAMIS']),
   }
 };
@@ -946,6 +948,7 @@ function applyFilters() {
     if (filters.instType === 'university' && !row._isUni) return false;
     if (filters.instType === 'company' && !row._isCompany) return false;
     if (filters.instType === 'federal' && !row._isFederal) return false;
+    if (filters.partnerFilter && row._wirt_canonical !== filters.partnerFilter) return false;
     if (terms.length) {
       if (searchMode === 'ai') {
         if (!terms.some(t => row._searchText.includes(t))) return false;
@@ -1151,15 +1154,41 @@ function renderPartnerPanel() {
 }
 
 function searchPartner(name) {
-  appState.filters.funders = new Set();
-  appState.filters.cantons = new Set();
-  document.getElementById('search-input').value = name;
-  appState.searchQuery = name;
-  appState.searchMode = 'keyword';
-  document.getElementById('btn-keyword').classList.add('active');
-  document.getElementById('btn-ai').classList.remove('active');
+  appState.filters.partnerFilter = name;
   appState.page = 1;
   switchTab('results');
+  render();
+}
+
+function resetAll() {
+  appState.searchQuery = '';
+  appState.searchMode = 'ai';
+  appState.aiTerms = [];
+  appState.aiRelated = [];
+  appState.page = 1;
+  appState.filters = {
+    funders: new Set(), status: 'all',
+    yearMin: 1990, yearMax: 2027, confMin: 0,
+    satwFields: new Set(), onlySatw: false,
+    cantons: new Set(), instType: 'all',
+    partnerFilter: null,
+    sources: new Set(['ARAMIS']),
+  };
+  document.getElementById('search-input').value = '';
+  document.getElementById('mode-keyword').classList.remove('active');
+  document.getElementById('mode-ai').classList.add('active');
+  document.getElementById('year-min').value = 1990;
+  document.getElementById('year-max').value = 2027;
+  document.getElementById('year-min-lbl').textContent = 1990;
+  document.getElementById('year-max-lbl').textContent = 2027;
+  updateYearFill();
+  document.getElementById('conf-slider').value = 0;
+  document.getElementById('conf-val').textContent = 'Threshold: 0.0 — showing all';
+  document.querySelectorAll('.funder-cb, .satw-field-cb, .canton-cb').forEach(cb => cb.checked = false);
+  document.querySelector('input[name=inst-type][value=all]').checked = true;
+  document.getElementById('only-satw').checked = false;
+  syncSourceUI();
+  document.getElementById('ai-expanded').style.display = 'none';
   render();
 }
 
@@ -1942,6 +1971,7 @@ function renderActiveFilters() {
   if (f.onlySatw) pills.push({ label: 'SATW only', clear: () => { f.onlySatw=false; document.getElementById('only-satw').checked=false; } });
   { const _s=f.sources, _both=_s.size===2, _aramis=_s.size===1&&_s.has('ARAMIS');
     if (!_aramis) pills.push({ label: `Database: ${_both?'🇨🇭🇪🇺 Both':'🇪🇺 CORDIS only'}`, clear: () => { f.sources=new Set(['ARAMIS']); syncSourceUI(); } }); }
+  if (f.partnerFilter) pills.push({ label: `🏭 Partner: ${f.partnerFilter}`, clear: () => { f.partnerFilter=null; } });
   const el = document.getElementById('active-filters');
   el.innerHTML = pills.map((p,i) =>
     `<span class="active-filter-pill">${escHtml(p.label)}<button onclick="clearPill(${i})" title="Remove">×</button></span>`
