@@ -227,7 +227,14 @@ input[type=range].single::-webkit-slider-thumb {
 .conf-dot { width: 8px; height: 8px; border-radius: 50%; }
 .budget-badge { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--primary-dark); }
 .card-title { font-size: 14px; font-weight: 600; line-height: 1.4; margin-bottom: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.card-institution { font-size: 12px; color: var(--text-sec); margin-bottom: 10px; }
+.card-institution { font-size: 12px; color: var(--text-sec); margin-bottom: 4px; }
+.partner-chip {
+  display: inline-flex; align-items: center; gap: 3px; margin-bottom: 8px;
+  font-size: 11px; color: var(--primary-dark); background: var(--primary-light);
+  border: 1px solid var(--primary-mid); border-radius: 10px; padding: 2px 8px;
+  text-decoration: none; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.partner-chip:hover { background: var(--primary-mid); color: white; }
 .card-divider { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
 .card-abstract { font-size: 13px; line-height: 1.5; color: var(--text); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .card-abstract.expanded { -webkit-line-clamp: unset; }
@@ -746,6 +753,41 @@ function extractContact(kontakt) {
   return { institution, canton, isCompany, isFederal, isUni };
 }
 
+// Regex to capture a company name ending in a known legal suffix.
+const _COMPANY_RE = /[\w\s&.:,'/()-]+?(?:\s(?:AG|SA|GmbH|Sàrl|Ltd|S\.A\.|Corp|Inc))(?=\s|$)/g;
+
+// Parse ` ||| `-separated wirtschaftspartner blocks into structured objects.
+function parseWirtPartners(wirtStr) {
+  if (!wirtStr) return [];
+  return wirtStr.split(' ||| ').map(block => {
+    const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
+    let company = '', canton = null;
+
+    if (lines.length > 1) {
+      // Multi-line (clean new format): extract line by line
+      for (const line of lines) {
+        const plzM = line.match(/CH-(\d{4})/);
+        if (plzM && !canton) canton = plzToCanton(plzM[1]);
+        if (!company && COMPANY_SUFFIXES.some(s => line.includes(s))) company = line;
+      }
+      if (!company) {
+        for (const line of [...lines].reverse()) {
+          if (line.includes('@') || /CH-\d{4}/.test(line) || /^\d/.test(line)) continue;
+          company = line; break;
+        }
+      }
+    } else if (lines.length === 1) {
+      // Single-line legacy format: extract company name via suffix regex
+      const text = lines[0];
+      const matches = [...text.matchAll(_COMPANY_RE)];
+      if (matches.length) company = matches[matches.length - 1][0].trim();
+      // No PLZ in single-line format — canton stays null
+    }
+
+    return company ? { displayName: company, canton, block } : null;
+  }).filter(Boolean);
+}
+
 // For CORDIS rows, the "contact/institution" is the Swiss beneficiary
 // organisation listed in swiss_organisations (no postal address → no canton).
 function extractCordisContact(swissOrgs) {
@@ -821,6 +863,7 @@ function buildIndex(data) {
       row['Projekttitel französisch'], row['Projekttitel italienisch'],
       row['Forschungsstelle'], contact.institution
     ].join(' ').toLowerCase();
+    const wirtPartners = row.source === 'ARAMIS' ? parseWirtPartners(row['wirtschaftspartner'] || '') : [];
     return {
       ...row,
       _conf: conf, _budget: budget, _startYear: startYear, _endYear: endYear, _year: year,
@@ -828,6 +871,8 @@ function buildIndex(data) {
       _isCompany: contact.isCompany, _isFederal: contact.isFederal, _isUni: contact.isUni,
       _satw: satw, _keywords: keywords, _searchText: searchText,
       _hasAbstract: (row['abstract_en'] || '').trim() !== 'No abstract available.' && (row['abstract_en'] || '').trim() !== '',
+      _wirt_partners: wirtPartners,
+      _wirt_canton: wirtPartners.length ? wirtPartners[0].canton : null,
     };
   });
 }
@@ -1063,6 +1108,14 @@ function buildCard(row, idx) {
   }).join('');
 
   const sourceFlag = row.source === 'CORDIS' ? '🇪🇺' : '🇨🇭';
+  let partnerChipHtml = '';
+  if (row._wirt_partners && row._wirt_partners.length) {
+    const p = row._wirt_partners[0];
+    const url = row['wirt_uid_url']
+      ? row['wirt_uid_url']
+      : `https://www.google.com/search?q=${encodeURIComponent(p.displayName + ' Schweiz')}`;
+    partnerChipHtml = `<a class="partner-chip" href="${escHtml(url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Implementation partner">🏭 ${escHtml(p.displayName)}</a>`;
+  }
   return `<div class="project-card" onclick="openModal(${JSON.stringify(idx).replace(/"/g,'&quot;')})">
     <div class="card-meta">
       <span title="${row.source === 'CORDIS' ? 'EU Horizon Europe (CORDIS)' : 'Swiss national funding (ARAMIS)'}">${sourceFlag}</span>
@@ -1073,6 +1126,7 @@ function buildCard(row, idx) {
     </div>
     <div class="card-title">${escHtml(title)}</div>
     ${row._institution ? `<div class="card-institution">${escHtml(row._institution)}</div>` : ''}
+    ${partnerChipHtml}
     ${abstract ? `<hr class="card-divider">
     <div class="card-abstract ${expanded?'expanded':''}" id="abs-${idx}">${escHtml(abstract)}</div>
     <span class="show-more" onclick="event.stopPropagation();toggleAbstract(${idx})">${expanded?'Show less':'Show more'}</span>` : ''}
@@ -1110,6 +1164,36 @@ function pagesToShow(cur, total) {
 function goPage(p) { appState.page = p; renderCards(); document.getElementById('tab-results').scrollTop = 0; updateHash(); }
 
 // ─── MODAL ──────────────────────────────────────────────────────────────────
+function renderWirtschaftspartner(row) {
+  const partners = row._wirt_partners || [];
+  if (!partners.length) return '';
+  const uidUrl = row['wirt_uid_url'] || '';
+  const topEmail = row['wirt_email'] || '';
+  let html = '';
+  partners.forEach((p, i) => {
+    const url = (i === 0 && uidUrl)
+      ? uidUrl
+      : `https://www.google.com/search?q=${encodeURIComponent(p.displayName + ' Schweiz')}`;
+    if (i > 0) html += `<hr style="border:none;border-top:1px solid var(--border);margin:6px 0;">`;
+    html += `<p style="font-size:12px;line-height:1.8;margin:0;">`;
+    const lines = p.block.split('\n').map(l => l.trim()).filter(Boolean);
+    lines.forEach((line, li) => {
+      if (li === 0) {
+        html += `<a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--primary-mid);font-weight:600;text-decoration:none;">${escHtml(line)}</a>`;
+      } else if (line.includes('@')) {
+        html += `<br><a href="mailto:${escHtml(line)}" style="color:var(--primary-mid);">${escHtml(line)}</a>`;
+      } else {
+        html += `<br><span style="color:var(--text-sec);">${escHtml(line)}</span>`;
+      }
+    });
+    if (i === 0 && topEmail && !lines.some(l => l.includes('@'))) {
+      html += `<br><a href="mailto:${escHtml(topEmail)}" style="color:var(--primary-mid);">${escHtml(topEmail)}</a>`;
+    }
+    html += `</p>`;
+  });
+  return html;
+}
+
 let modalIndex = [];
 function openModal(idx) {
   const row = filtered[idx];
@@ -1143,6 +1227,9 @@ function openModal(idx) {
     ${row._keywords.length ? `<div class="modal-section"><h3>Keywords</h3><div class="card-keywords">${row._keywords.map(k=>`<span class="kw-chip" onclick="closeModal();searchKeyword('${escHtml(k)}')">${escHtml(k)}</span>`).join('')}</div></div>` : ''}
     ${row._satw.length ? `<div class="modal-section"><h3>SATW Technologies</h3><div class="satw-chips">${row._satw.map(t=>`<span class="satw-chip" style="background:${satwColorForTech(t)};">${escHtml(t)}</span>`).join('')}</div></div>` : ''}
     ${row['Kontaktperson'] ? `<div class="modal-section"><h3>Contact / Institution</h3>${renderContact(row['Kontaktperson'])}</div>` : ''}
+    ${!isCordis && row['wirtschaftspartner'] ? `<div class="modal-section"><h3>Implementation partner</h3>${renderWirtschaftspartner(row)}</div>` : ''}
+    ${!isCordis && row['wissensch_leitung'] ? `<div class="modal-section"><h3>Scientific lead</h3>${renderContact(row['wissensch_leitung'])}</div>` : ''}
+    ${!isCordis && row['forschungspartner'] ? `<div class="modal-section"><h3>Research partners</h3>${row['forschungspartner'].split(' ||| ').map(b => renderContact(b)).join('<hr style="border:none;border-top:1px solid var(--border);margin:6px 0;">')}</div>` : ''}
     ${row['NABS-Kategorie'] ? `<div class="modal-section"><h3>NABS Category</h3><p>${escHtml(row['NABS-Kategorie'])}</p></div>` : ''}
     ${row['Forschungsart'] ? `<div class="modal-section"><h3>Research type</h3><p>${escHtml(row['Forschungsart'])}</p></div>` : ''}
     <a class="modal-link" href="${url}" target="_blank">${isCordis ? 'View on CORDIS →' : 'View on ARAMIS →'}</a>
@@ -1566,13 +1653,17 @@ const CANTON_CENTROIDS = {
 let leafletMap = null;
 let mapMarkers = [];
 
+let mapMode = 'research'; // 'research' | 'partner'
+function setMapMode(mode) { mapMode = mode; renderMap(); }
+
 function renderMap() {
   // Count by canton from filtered set
   const counts = {}, budgets = {};
   filtered.forEach(r => {
-    if (r._canton) {
-      counts[r._canton] = (counts[r._canton]||0) + 1;
-      budgets[r._canton] = (budgets[r._canton]||0) + r._budget;
+    const canton = mapMode === 'partner' ? (r._wirt_canton || r._canton) : r._canton;
+    if (canton) {
+      counts[canton] = (counts[canton]||0) + 1;
+      budgets[canton] = (budgets[canton]||0) + r._budget;
     }
   });
   const maxCount = Math.max(...Object.values(counts), 1);
@@ -1628,12 +1719,17 @@ function renderMap() {
     </table>`;
 
   // Legend
+  const withLoc = mapMode === 'partner'
+    ? filtered.filter(r => r._wirt_canton || r._canton).length
+    : filtered.filter(r => r._canton).length;
   document.getElementById('map-legend').innerHTML = `
-    <span style="font-size:12px;color:var(--text-sec);">Projects per canton:</span>
-    <span class="map-legend-item"><span class="map-legend-dot" style="background:#85C1E9;"></span>Low</span>
+    <span style="font-size:12px;color:var(--text-sec);">Layer:</span>
+    <button onclick="setMapMode('research')" style="font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid var(--border);cursor:pointer;${mapMode==='research'?'background:var(--primary-light);color:var(--primary-dark);font-weight:600;':'background:none;'}">🔬 Research</button>
+    <button onclick="setMapMode('partner')" style="font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid var(--border);cursor:pointer;${mapMode==='partner'?'background:var(--primary-light);color:var(--primary-dark);font-weight:600;':'background:none;'}">🏭 Partner</button>
+    <span class="map-legend-item" style="margin-left:8px;"><span class="map-legend-dot" style="background:#85C1E9;"></span>Low</span>
     <span class="map-legend-item"><span class="map-legend-dot" style="background:#2E86C1;"></span>Medium</span>
     <span class="map-legend-item"><span class="map-legend-dot" style="background:#1A3A5C;"></span>High</span>
-    <span style="font-size:12px;color:var(--text-sec);margin-left:8px;">Click a canton to filter · ${filtered.filter(r=>r._canton).length.toLocaleString()} of ${filtered.length.toLocaleString()} projects have location data</span>`;
+    <span style="font-size:12px;color:var(--text-sec);margin-left:8px;">Click a canton to filter · ${withLoc.toLocaleString()} of ${filtered.length.toLocaleString()} projects plotted</span>`;
 
   // Force map to recalculate size (tab was hidden)
   setTimeout(() => leafletMap.invalidateSize(), 50);
@@ -1761,7 +1857,7 @@ window.addEventListener('load', async () => {
   setLoadStatus('Fetching CSV…', 10);
   let aramisText, cordisText;
   try {
-    const resp = await fetch('./aramis_enriched_full.csv');
+    const resp = await fetch('./aramis_scraped.csv');
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     setLoadStatus('Downloading data…', 25);
     aramisText = await resp.text();
