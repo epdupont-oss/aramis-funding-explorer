@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ARAMIS Explorer — Swiss Public Research Funding</title>
+<title>ARAMIS (& CORDIS) Swiss Explorer — Swiss Public Research Funding</title>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css">
@@ -230,11 +230,11 @@ input[type=range].single::-webkit-slider-thumb {
 .card-institution { font-size: 12px; color: var(--text-sec); margin-bottom: 4px; }
 .partner-chip {
   display: inline-flex; align-items: center; gap: 3px; margin-bottom: 8px;
-  font-size: 11px; color: var(--primary-dark); background: var(--primary-light);
-  border: 1px solid var(--primary-mid); border-radius: 10px; padding: 2px 8px;
+  font-size: 11px; color: #276221; background: #e8f5e9;
+  border: 1px solid #81c784; border-radius: 10px; padding: 2px 8px;
   text-decoration: none; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.partner-chip:hover { background: var(--primary-mid); color: white; }
+.partner-chip:hover { background: #4caf50; color: white; border-color: #4caf50; }
 .card-divider { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
 .card-abstract { font-size: 13px; line-height: 1.5; color: var(--text); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .card-abstract.expanded { -webkit-line-clamp: unset; }
@@ -415,7 +415,7 @@ footer a { color: rgba(255,255,255,0.8); }
 
 <!-- LOADING -->
 <div id="loading-screen">
-  <h1>ARAMIS Explorer</h1>
+  <h1>ARAMIS (& CORDIS) Swiss Explorer</h1>
   <p>Loading Swiss public research funding data…</p>
   <div class="loader-bar"><div class="loader-fill" id="loader-fill"></div></div>
   <div id="load-status">Fetching CSV…</div>
@@ -427,8 +427,8 @@ footer a { color: rgba(255,255,255,0.8); }
 <header>
   <div class="header-top">
     <div class="header-title">
-      <h1>ARAMIS Explorer</h1>
-      <p>Swiss Public Research Funding · Federal Administration Database · <a href="#disclaimer" style="color:rgba(255,200,100,0.9);text-decoration:underline;font-weight:600;">⚠ Read this first</a> · <a href="mailto:epdupont@gmail.com" style="color:rgba(255,255,255,0.5);font-size:11px;">feedback?</a></p>
+      <h1>ARAMIS (& CORDIS) Swiss Explorer</h1>
+      <p>Swiss Public Research Funding · Federal Administration and EU Horizon Databases · <a href="#disclaimer" style="color:rgba(255,200,100,0.9);text-decoration:underline;font-weight:600;">⚠ Read this first</a> · <a href="mailto:epdupont@gmail.com" style="color:rgba(255,255,255,0.5);font-size:11px;">feedback?</a></p>
     </div>
     <div style="display:flex;gap:8px;align-items:flex-start;">
       <button id="sidebar-toggle">☰ Filters</button>
@@ -580,6 +580,8 @@ footer a { color: rgba(255,255,255,0.8); }
       <div class="inst-panel">
         <h3>Top institutions</h3>
         <div id="inst-list"></div>
+        <h3 style="margin-top:18px;">Top implementation partners</h3>
+        <div id="partner-list"></div>
       </div>
     </div>
   </div>
@@ -1054,6 +1056,7 @@ function renderCards() {
   document.getElementById('card-grid').innerHTML = page.map((row, i) => buildCard(row, start + i)).join('');
   renderPagination();
   renderInstPanel();
+  renderPartnerPanel();
 }
 
 // ─── TOP INSTITUTIONS PANEL ─────────────────────────────────────────────────
@@ -1071,6 +1074,52 @@ function renderInstPanel() {
       </div>
       <span class="inst-count">${cnt}</span>
     </div>`).join('');
+}
+
+// ─── TOP IMPLEMENTATION PARTNERS PANEL ──────────────────────────────────────
+function renderPartnerPanel() {
+  const el = document.getElementById('partner-list');
+  if (!el) return;
+  const counts = {}, uidUrls = {};
+  filtered.forEach(r => {
+    if (!r._wirt_partners || !r._wirt_partners.length) return;
+    const name = r._wirt_partners[0].displayName;
+    if (!name) return;
+    counts[name] = (counts[name] || 0) + 1;
+    if (!uidUrls[name] && r['wirt_uid_url']) uidUrls[name] = r['wirt_uid_url'];
+  });
+  const top = Object.entries(counts).sort((a,b) => b[1]-a[1]).slice(0, 10);
+  if (!top.length) {
+    el.innerHTML = '<p style="font-size:12px;color:var(--text-sec);">No partner data in current results</p>';
+    return;
+  }
+  const max = top[0][1];
+  el.innerHTML = top.map(([name, cnt]) => {
+    const extUrl = uidUrls[name]
+      ? uidUrls[name]
+      : `https://www.google.com/search?q=${encodeURIComponent(name + ' Schweiz')}`;
+    return `<div class="inst-item">
+      <div style="flex:1;min-width:0;cursor:pointer;" onclick="searchPartner('${name.replace(/'/g,"\\'").replace(/\\/g,'\\\\')}')">
+        <div class="inst-name">${escHtml(name)}</div>
+        <div class="inst-bar-wrap" style="margin-top:3px;"><div class="inst-bar" style="width:${Math.round(cnt/max*100)}%;background:#4caf50;"></div></div>
+      </div>
+      <a href="${escHtml(extUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Look up company" style="font-size:13px;text-decoration:none;padding:0 2px;color:var(--text-sec);">↗</a>
+      <span class="inst-count" onclick="searchPartner('${name.replace(/'/g,"\\'").replace(/\\/g,'\\\\')}')" style="cursor:pointer;">${cnt}</span>
+    </div>`;
+  }).join('');
+}
+
+function searchPartner(name) {
+  appState.filters.funders = new Set();
+  appState.filters.cantons = new Set();
+  document.getElementById('search-input').value = name;
+  appState.searchQuery = name;
+  appState.searchMode = 'keyword';
+  document.getElementById('btn-keyword').classList.add('active');
+  document.getElementById('btn-ai').classList.remove('active');
+  appState.page = 1;
+  switchTab('results');
+  render();
 }
 
 function searchInstitution(name) {
