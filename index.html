@@ -2012,23 +2012,32 @@ function escHtml(s) {
 }
 
 // ─── BOOT ────────────────────────────────────────────────────────────────────
+async function fetchText(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('HTTP ' + resp.status);
+  if (url.endsWith('.gz')) {
+    const stream = resp.body.pipeThrough(new DecompressionStream('gzip'));
+    return new Response(stream).text();
+  }
+  return resp.text();
+}
+
 window.addEventListener('load', async () => {
   setLoadStatus('Fetching CSV…', 10);
   let aramisText, cordisText;
   try {
-    const resp = await fetch('./aramis_scraped.csv');
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    aramisText = await fetchText('./aramis_scraped.csv.gz');
     setLoadStatus('Downloading data…', 25);
-    aramisText = await resp.text();
   } catch(e) {
     document.getElementById('load-status').textContent = 'Error loading CSV: ' + e.message;
     return;
   }
   try {
-    const respC = await fetch('./cordis_enriched.csv');
+    const respC = await fetch('./cordis_enriched.csv.gz');
     if (respC.ok) {
       setLoadStatus('Downloading CORDIS data…', 40);
-      cordisText = await respC.text();
+      const stream = respC.body.pipeThrough(new DecompressionStream('gzip'));
+      cordisText = await new Response(stream).text();
     }
   } catch(e) { /* CORDIS data optional */ }
 
