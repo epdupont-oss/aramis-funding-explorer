@@ -531,11 +531,11 @@ footer a { color: rgba(255,255,255,0.8); }
       <div class="dual-range">
         <div class="range-track"></div>
         <div class="range-fill" id="year-fill"></div>
-        <input type="range" id="year-min" min="1990" max="2027" value="1990" oninput="onYearChange()">
+        <input type="range" id="year-min" min="1990" max="2027" value="2022" oninput="onYearChange()">
         <input type="range" id="year-max" min="1990" max="2027" value="2027" oninput="onYearChange()">
       </div>
       <div class="range-labels">
-        <span id="year-min-lbl">1990</span>
+        <span id="year-min-lbl">2022</span>
         <span id="year-max-lbl">2027</span>
       </div>
     </div>
@@ -544,11 +544,11 @@ footer a { color: rgba(255,255,255,0.8); }
   <div class="sidebar-section">
     <h3>Min. confidence</h3>
     <div class="range-wrap">
-      <input type="range" class="single" id="conf-slider" min="0" max="1" step="0.05" value="0" oninput="onFilterChange()">
+      <input type="range" class="single" id="conf-slider" min="0" max="1" step="0.05" value="0.35" oninput="onFilterChange()">
       <div class="range-labels">
         <span>Low</span><span>Medium</span><span>High</span><span>Very High</span>
       </div>
-      <div id="conf-val" style="font-size:12px;color:var(--text-sec);margin-top:4px;">Threshold: 0.0 — showing all</div>
+      <div id="conf-val" style="font-size:12px;color:var(--text-sec);margin-top:4px;">Threshold: 0.35</div>
       <div style="font-size:11px;color:var(--text-sec);margin-top:2px;">Higher = richer source data</div>
     </div>
   </div>
@@ -848,9 +848,9 @@ const appState = {
   filters: {
     funders: new Set(),
     status: 'all',
-    yearMin: 1990,
+    yearMin: 2022,
     yearMax: 2027,
-    confMin: 0,
+    confMin: 0.35,
     satwFields: new Set(),
     onlySatw: false,
     cantons: new Set(),
@@ -1168,7 +1168,7 @@ function resetAll() {
   appState.page = 1;
   appState.filters = {
     funders: new Set(), status: 'all',
-    yearMin: 1990, yearMax: 2027, confMin: 0,
+    yearMin: 2022, yearMax: 2027, confMin: 0.35,
     satwFields: new Set(), onlySatw: false,
     cantons: new Set(), instType: 'all',
     partnerFilter: null,
@@ -1177,13 +1177,13 @@ function resetAll() {
   document.getElementById('search-input').value = '';
   document.getElementById('mode-keyword').classList.remove('active');
   document.getElementById('mode-ai').classList.add('active');
-  document.getElementById('year-min').value = 1990;
+  document.getElementById('year-min').value = 2022;
   document.getElementById('year-max').value = 2027;
-  document.getElementById('year-min-lbl').textContent = 1990;
+  document.getElementById('year-min-lbl').textContent = 2022;
   document.getElementById('year-max-lbl').textContent = 2027;
   updateYearFill();
-  document.getElementById('conf-slider').value = 0;
-  document.getElementById('conf-val').textContent = 'Threshold: 0.0 — showing all';
+  document.getElementById('conf-slider').value = 0.35;
+  document.getElementById('conf-val').textContent = 'Threshold: 0.35';
   document.querySelectorAll('.funder-cb, .satw-field-cb, .canton-cb').forEach(cb => cb.checked = false);
   document.querySelector('input[name=inst-type][value=all]').checked = true;
   document.getElementById('only-satw').checked = false;
@@ -1766,9 +1766,9 @@ function onSortChange() {
 function resetFilters() {
   appState.filters.funders.clear();
   appState.filters.status = 'all';
-  appState.filters.yearMin = 1990;
+  appState.filters.yearMin = 2022;
   appState.filters.yearMax = 2027;
-  appState.filters.confMin = 0;
+  appState.filters.confMin = 0.35;
   appState.filters.satwFields.clear();
   appState.filters.onlySatw = false;
   appState.filters.cantons.clear();
@@ -1778,12 +1778,12 @@ function resetFilters() {
   document.getElementById('search-input').value = '';
   document.getElementById('ai-expanded').style.display='none';
   document.querySelector('input[name=status][value=all]').checked = true;
-  document.getElementById('year-min').value = 1990;
+  document.getElementById('year-min').value = 2022;
   document.getElementById('year-max').value = 2027;
-  document.getElementById('year-min-lbl').textContent = '1990';
+  document.getElementById('year-min-lbl').textContent = '2022';
   document.getElementById('year-max-lbl').textContent = '2027';
-  document.getElementById('conf-slider').value = 0;
-  document.getElementById('conf-val').textContent = 'Threshold: 0.0 — showing all';
+  document.getElementById('conf-slider').value = 0.35;
+  document.getElementById('conf-val').textContent = 'Threshold: 0.35';
   document.getElementById('only-satw').checked = false;
   document.querySelector('input[name=inst-type][value=all]').checked = true;
   updateYearFill();
@@ -1908,9 +1908,9 @@ function updateHash() {
   if (appState.searchQuery) params.set('q', appState.searchQuery);
   if (appState.filters.funders.size) params.set('funders', [...appState.filters.funders].join(','));
   if (appState.filters.status !== 'all') params.set('status', appState.filters.status);
-  if (appState.filters.yearMin !== 1990) params.set('ymin', appState.filters.yearMin);
+  if (appState.filters.yearMin !== 2022) params.set('ymin', appState.filters.yearMin);
   if (appState.filters.yearMax !== 2027) params.set('ymax', appState.filters.yearMax);
-  if (appState.filters.confMin > 0) params.set('conf', appState.filters.confMin);
+  if (appState.filters.confMin !== 0.35) params.set('conf', appState.filters.confMin);
   if (appState.filters.cantons.size) params.set('cantons', [...appState.filters.cantons].join(','));
   if (appState.filters.satwFields.size) params.set('satw', [...appState.filters.satwFields].join('|'));
   if (appState.filters.onlySatw) params.set('onlysatw','1');
@@ -1963,8 +1963,8 @@ function renderActiveFilters() {
   const allFunders = [...f.funders];
   if (allFunders.length) pills.push({ label: `Funders: ${allFunders.join(', ')}`, clear: () => { f.funders.clear(); renderFunderList(); } });
   if (f.status !== 'all') pills.push({ label: `Status: ${f.status}`, clear: () => { f.status='all'; document.querySelector('input[name=status][value=all]').checked=true; } });
-  if (f.yearMin > 1990 || f.yearMax < 2027) pills.push({ label: `Years: ${f.yearMin}–${f.yearMax}`, clear: () => { f.yearMin=1990; f.yearMax=2027; document.getElementById('year-min').value=1990; document.getElementById('year-max').value=2027; document.getElementById('year-min-lbl').textContent=1990; document.getElementById('year-max-lbl').textContent=2027; updateYearFill(); } });
-  if (f.confMin > 0) pills.push({ label: `Conf ≥ ${f.confMin.toFixed(2)}`, clear: () => { f.confMin=0; document.getElementById('conf-slider').value=0; document.getElementById('conf-val').textContent='Threshold: 0.0 — showing all'; } });
+  if (f.yearMin > 2022 || f.yearMax < 2027) pills.push({ label: `Years: ${f.yearMin}–${f.yearMax}`, clear: () => { f.yearMin=2022; f.yearMax=2027; document.getElementById('year-min').value=2022; document.getElementById('year-max').value=2027; document.getElementById('year-min-lbl').textContent=2022; document.getElementById('year-max-lbl').textContent=2027; updateYearFill(); } });
+  if (f.confMin > 0.35) pills.push({ label: `Conf ≥ ${f.confMin.toFixed(2)}`, clear: () => { f.confMin=0.35; document.getElementById('conf-slider').value=0.35; document.getElementById('conf-val').textContent='Threshold: 0.35'; } });
   if (f.satwFields.size) pills.push({ label: `SATW: ${[...f.satwFields].join(', ')}`, clear: () => { f.satwFields.clear(); document.querySelectorAll('.satw-field-cb').forEach(c=>c.checked=false); } });
   if (f.cantons.size) pills.push({ label: `Cantons: ${[...f.cantons].join(', ')}`, clear: () => { f.cantons.clear(); document.querySelectorAll('.canton-cb').forEach(c=>c.checked=false); } });
   if (f.instType !== 'all') pills.push({ label: `Inst: ${f.instType}`, clear: () => { f.instType='all'; document.querySelector('input[name=inst-type][value=all]').checked=true; } });
