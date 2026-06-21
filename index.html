@@ -838,6 +838,11 @@ let charts = {};
 let expandedAbstracts = new Set();
 let expandedSatwRows = {};
 
+// Single source of truth for the filter defaults. Read by appState's initial
+// value, applyFilterDefaults(), the active-filter pills, and updateHash() —
+// change a default here and all of those stay in sync automatically.
+const DEFAULT_FILTERS = { yearMin: 2022, yearMax: 2027, confMin: 0.35 };
+
 const appState = {
   searchQuery: '',
   searchMode: 'ai',
@@ -848,9 +853,9 @@ const appState = {
   filters: {
     funders: new Set(),
     status: 'all',
-    yearMin: 2022,
-    yearMax: 2027,
-    confMin: 0.35,
+    yearMin: DEFAULT_FILTERS.yearMin,
+    yearMax: DEFAULT_FILTERS.yearMax,
+    confMin: DEFAULT_FILTERS.confMin,
     satwFields: new Set(),
     onlySatw: false,
     cantons: new Set(),
@@ -1160,34 +1165,49 @@ function searchPartner(name) {
   render();
 }
 
+// Resets every filter (state + DOM) to DEFAULT_FILTERS. Used by both the page-title
+// reset and the sidebar "Reset all filters" button, plus once at boot, so the three
+// no longer drift out of sync with each other.
+function applyFilterDefaults() {
+  const f = appState.filters;
+  f.funders.clear();
+  f.status = 'all';
+  f.yearMin = DEFAULT_FILTERS.yearMin;
+  f.yearMax = DEFAULT_FILTERS.yearMax;
+  f.confMin = DEFAULT_FILTERS.confMin;
+  f.satwFields.clear();
+  f.onlySatw = false;
+  f.cantons.clear();
+  f.instType = 'all';
+  f.partnerFilter = null;
+  f.sources = new Set(['ARAMIS']);
+
+  document.querySelector('input[name=status][value=all]').checked = true;
+  document.getElementById('year-min').value = DEFAULT_FILTERS.yearMin;
+  document.getElementById('year-max').value = DEFAULT_FILTERS.yearMax;
+  document.getElementById('year-min-lbl').textContent = DEFAULT_FILTERS.yearMin;
+  document.getElementById('year-max-lbl').textContent = DEFAULT_FILTERS.yearMax;
+  document.getElementById('conf-slider').value = DEFAULT_FILTERS.confMin;
+  document.getElementById('conf-val').textContent = `Threshold: ${DEFAULT_FILTERS.confMin.toFixed(2)}`;
+  document.getElementById('only-satw').checked = false;
+  document.querySelector('input[name=inst-type][value=all]').checked = true;
+  updateYearFill();
+  syncSourceUI();
+  renderFunderList();
+  renderCantonList();
+  renderSatwFieldList();
+}
+
 function resetAll() {
   appState.searchQuery = '';
   appState.searchMode = 'ai';
   appState.aiTerms = [];
   appState.aiRelated = [];
   appState.page = 1;
-  appState.filters = {
-    funders: new Set(), status: 'all',
-    yearMin: 2022, yearMax: 2027, confMin: 0.35,
-    satwFields: new Set(), onlySatw: false,
-    cantons: new Set(), instType: 'all',
-    partnerFilter: null,
-    sources: new Set(['ARAMIS']),
-  };
+  applyFilterDefaults();
   document.getElementById('search-input').value = '';
   document.getElementById('mode-keyword').classList.remove('active');
   document.getElementById('mode-ai').classList.add('active');
-  document.getElementById('year-min').value = 2022;
-  document.getElementById('year-max').value = 2027;
-  document.getElementById('year-min-lbl').textContent = 2022;
-  document.getElementById('year-max-lbl').textContent = 2027;
-  updateYearFill();
-  document.getElementById('conf-slider').value = 0.35;
-  document.getElementById('conf-val').textContent = 'Threshold: 0.35';
-  document.querySelectorAll('.funder-cb, .satw-field-cb, .canton-cb').forEach(cb => cb.checked = false);
-  document.querySelector('input[name=inst-type][value=all]').checked = true;
-  document.getElementById('only-satw').checked = false;
-  syncSourceUI();
   document.getElementById('ai-expanded').style.display = 'none';
   render();
 }
@@ -1282,6 +1302,19 @@ function pagesToShow(cur, total) {
 function goPage(p) { appState.page = p; renderCards(); document.getElementById('tab-results').scrollTop = 0; updateHash(); }
 
 // ─── MODAL ──────────────────────────────────────────────────────────────────
+
+// Shared building blocks for contact/partner blocks (used by renderContact()
+// and renderWirtschaftspartner()): a bold linked name, and a single detail
+// line that auto-links if it contains an email address.
+function renderNameLink(nameHtml, url) {
+  return `<a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--primary-mid);font-weight:600;text-decoration:none;">${nameHtml}</a>`;
+}
+function renderDetailLine(line) {
+  const emailM = line.match(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/i);
+  if (emailM) return `<br><a href="mailto:${emailM[0]}" style="color:var(--primary-mid);">${escHtml(line)}</a>`;
+  return `<br><span style="color:var(--text-sec);">${escHtml(line)}</span>`;
+}
+
 function renderWirtschaftspartner(row) {
   const uidUrl   = row['wirt_uid_url'] || '';
   const topEmail = row['wirt_email'] || '';
@@ -1301,7 +1334,7 @@ function renderWirtschaftspartner(row) {
 
   html += `<p style="font-size:12px;line-height:1.8;margin:0;">`;
   if (canonical) {
-    html += `<a href="${escHtml(url)}" target="_blank" rel="noopener" style="color:var(--primary-mid);font-weight:600;text-decoration:none;">${escHtml(canonical)}</a>`;
+    html += renderNameLink(escHtml(canonical), url);
   }
   if (person) {
     html += `<br><span style="color:var(--text-sec);">${escHtml(person)}</span>`;
@@ -1313,19 +1346,17 @@ function renderWirtschaftspartner(row) {
     const skipRe = canonical ? new RegExp(canonical.substring(0, 6).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') : null;
     lines.forEach(line => {
       if (skipRe && skipRe.test(line)) return;  // already shown as company name
-      if (line.includes('@')) {
-        html += `<br><a href="mailto:${escHtml(line)}" style="color:var(--primary-mid);">${escHtml(line)}</a>`;
-      } else if (/CH-\d{4}|^\d|Strasse|strasse|gasse|weg|platz|allee/i.test(line)) {
-        html += `<br><span style="color:var(--text-sec);">${escHtml(line)}</span>`;
+      if (line.includes('@') || /CH-\d{4}|^\d|Strasse|strasse|gasse|weg|platz|allee/i.test(line)) {
+        html += renderDetailLine(line);
       }
     });
     if (topEmail && !lines.some(l => l.includes('@'))) {
-      html += `<br><a href="mailto:${escHtml(topEmail)}" style="color:var(--primary-mid);">${escHtml(topEmail)}</a>`;
+      html += renderDetailLine(topEmail);
     }
   }
   html += `</p>`;
 
-  // ── Additional partners (index > 0): raw block rendering ──────────────────
+  // ── Additional partners (index > 0): name + detail lines, same shape as renderContact() ──
   blocks.slice(1).forEach(block => {
     const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
     if (!lines.length) return;
@@ -1333,15 +1364,8 @@ function renderWirtschaftspartner(row) {
     const pUrl = `https://www.google.com/search?q=${encodeURIComponent(pName + ' Schweiz')}`;
     html += `<hr style="border:none;border-top:1px solid var(--border);margin:6px 0;">`;
     html += `<p style="font-size:12px;line-height:1.8;margin:0;">`;
-    lines.forEach((line, li) => {
-      if (li === 0) {
-        html += `<a href="${escHtml(pUrl)}" target="_blank" rel="noopener" style="color:var(--primary-mid);font-weight:600;text-decoration:none;">${escHtml(line)}</a>`;
-      } else if (line.includes('@')) {
-        html += `<br><a href="mailto:${escHtml(line)}" style="color:var(--primary-mid);">${escHtml(line)}</a>`;
-      } else {
-        html += `<br><span style="color:var(--text-sec);">${escHtml(line)}</span>`;
-      }
-    });
+    html += renderNameLink(escHtml(pName), pUrl);
+    lines.slice(1).forEach(line => { html += renderDetailLine(line); });
     html += `</p>`;
   });
 
@@ -1404,15 +1428,8 @@ function renderContact(raw) {
   const q = encodeURIComponent(personLines.join(' ') + (rest[0] ? ' ' + rest[0] : ''));
   const searchUrl = `https://www.google.com/search?q=${q}`;
   let html = `<p style="font-size:12px;line-height:1.7;">`;
-  html += `<a href="${searchUrl}" target="_blank" rel="noopener" style="color:var(--primary-mid);font-weight:600;text-decoration:none;">${escHtml(personLines.join(' '))}</a>`;
-  rest.forEach(l => {
-    const emailM = l.match(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/i);
-    if (emailM) {
-      html += `<br><a href="mailto:${emailM[0]}" style="color:var(--primary-mid);">${escHtml(l)}</a>`;
-    } else {
-      html += `<br><span style="color:var(--text-sec);">${escHtml(l)}</span>`;
-    }
-  });
+  html += renderNameLink(escHtml(personLines.join(' ')), searchUrl);
+  rest.forEach(l => { html += renderDetailLine(l); });
   html += `</p>`;
   return html;
 }
@@ -1764,33 +1781,12 @@ function onSortChange() {
 }
 
 function resetFilters() {
-  appState.filters.funders.clear();
-  appState.filters.status = 'all';
-  appState.filters.yearMin = 2022;
-  appState.filters.yearMax = 2027;
-  appState.filters.confMin = 0.35;
-  appState.filters.satwFields.clear();
-  appState.filters.onlySatw = false;
-  appState.filters.cantons.clear();
-  appState.filters.instType = 'all';
   appState.searchQuery = '';
   appState.aiTerms = [];
-  document.getElementById('search-input').value = '';
-  document.getElementById('ai-expanded').style.display='none';
-  document.querySelector('input[name=status][value=all]').checked = true;
-  document.getElementById('year-min').value = 2022;
-  document.getElementById('year-max').value = 2027;
-  document.getElementById('year-min-lbl').textContent = '2022';
-  document.getElementById('year-max-lbl').textContent = '2027';
-  document.getElementById('conf-slider').value = 0.35;
-  document.getElementById('conf-val').textContent = 'Threshold: 0.35';
-  document.getElementById('only-satw').checked = false;
-  document.querySelector('input[name=inst-type][value=all]').checked = true;
-  updateYearFill();
-  renderFunderList();
-  renderCantonList();
-  renderSatwFieldList();
   appState.page = 1;
+  applyFilterDefaults();
+  document.getElementById('search-input').value = '';
+  document.getElementById('ai-expanded').style.display = 'none';
   render();
 }
 
@@ -1908,9 +1904,9 @@ function updateHash() {
   if (appState.searchQuery) params.set('q', appState.searchQuery);
   if (appState.filters.funders.size) params.set('funders', [...appState.filters.funders].join(','));
   if (appState.filters.status !== 'all') params.set('status', appState.filters.status);
-  if (appState.filters.yearMin !== 2022) params.set('ymin', appState.filters.yearMin);
-  if (appState.filters.yearMax !== 2027) params.set('ymax', appState.filters.yearMax);
-  if (appState.filters.confMin !== 0.35) params.set('conf', appState.filters.confMin);
+  if (appState.filters.yearMin !== DEFAULT_FILTERS.yearMin) params.set('ymin', appState.filters.yearMin);
+  if (appState.filters.yearMax !== DEFAULT_FILTERS.yearMax) params.set('ymax', appState.filters.yearMax);
+  if (appState.filters.confMin !== DEFAULT_FILTERS.confMin) params.set('conf', appState.filters.confMin);
   if (appState.filters.cantons.size) params.set('cantons', [...appState.filters.cantons].join(','));
   if (appState.filters.satwFields.size) params.set('satw', [...appState.filters.satwFields].join('|'));
   if (appState.filters.onlySatw) params.set('onlysatw','1');
@@ -1963,8 +1959,8 @@ function renderActiveFilters() {
   const allFunders = [...f.funders];
   if (allFunders.length) pills.push({ label: `Funders: ${allFunders.join(', ')}`, clear: () => { f.funders.clear(); renderFunderList(); } });
   if (f.status !== 'all') pills.push({ label: `Status: ${f.status}`, clear: () => { f.status='all'; document.querySelector('input[name=status][value=all]').checked=true; } });
-  if (f.yearMin > 2022 || f.yearMax < 2027) pills.push({ label: `Years: ${f.yearMin}–${f.yearMax}`, clear: () => { f.yearMin=2022; f.yearMax=2027; document.getElementById('year-min').value=2022; document.getElementById('year-max').value=2027; document.getElementById('year-min-lbl').textContent=2022; document.getElementById('year-max-lbl').textContent=2027; updateYearFill(); } });
-  if (f.confMin > 0.35) pills.push({ label: `Conf ≥ ${f.confMin.toFixed(2)}`, clear: () => { f.confMin=0.35; document.getElementById('conf-slider').value=0.35; document.getElementById('conf-val').textContent='Threshold: 0.35'; } });
+  if (f.yearMin > DEFAULT_FILTERS.yearMin || f.yearMax < DEFAULT_FILTERS.yearMax) pills.push({ label: `Years: ${f.yearMin}–${f.yearMax}`, clear: () => { f.yearMin=DEFAULT_FILTERS.yearMin; f.yearMax=DEFAULT_FILTERS.yearMax; document.getElementById('year-min').value=DEFAULT_FILTERS.yearMin; document.getElementById('year-max').value=DEFAULT_FILTERS.yearMax; document.getElementById('year-min-lbl').textContent=DEFAULT_FILTERS.yearMin; document.getElementById('year-max-lbl').textContent=DEFAULT_FILTERS.yearMax; updateYearFill(); } });
+  if (f.confMin > DEFAULT_FILTERS.confMin) pills.push({ label: `Conf ≥ ${f.confMin.toFixed(2)}`, clear: () => { f.confMin=DEFAULT_FILTERS.confMin; document.getElementById('conf-slider').value=DEFAULT_FILTERS.confMin; document.getElementById('conf-val').textContent=`Threshold: ${DEFAULT_FILTERS.confMin.toFixed(2)}`; } });
   if (f.satwFields.size) pills.push({ label: `SATW: ${[...f.satwFields].join(', ')}`, clear: () => { f.satwFields.clear(); document.querySelectorAll('.satw-field-cb').forEach(c=>c.checked=false); } });
   if (f.cantons.size) pills.push({ label: `Cantons: ${[...f.cantons].join(', ')}`, clear: () => { f.cantons.clear(); document.querySelectorAll('.canton-cb').forEach(c=>c.checked=false); } });
   if (f.instType !== 'all') pills.push({ label: `Inst: ${f.instType}`, clear: () => { f.instType='all'; document.querySelector('input[name=inst-type][value=all]').checked=true; } });
@@ -2063,12 +2059,8 @@ window.addEventListener('load', async () => {
   index = buildIndex(rows);
   setLoadStatus('Building filters…', 90);
   await new Promise(r => setTimeout(r, 0));
-  // Build sidebar filters
-  renderFunderList();
-  renderCantonList();
-  renderSatwFieldList();
-  updateYearFill();
-  // Load URL state
+  // Build sidebar filters at their defaults, then let any URL state override them
+  applyFilterDefaults();
   loadHash();
   setLoadStatus('Ready!', 100);
   await new Promise(r => setTimeout(r, 200));
