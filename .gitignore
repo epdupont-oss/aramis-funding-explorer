@@ -2,3 +2,10 @@
 .claude/
 serve.py
 claude_code_prompt_v2.md
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
