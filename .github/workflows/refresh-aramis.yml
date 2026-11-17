@@ -1,0 +1,73 @@
+name: ARAMIS monthly refresh
+
+# Downloads the ARAMIS export, scrapes and enriches only new/changed projects,
+# and opens a pull request with the updated data for review. Nothing goes live
+# until the pull request is merged into main (Cloudflare Pages deploys main).
+
+on:
+  schedule:
+    - cron: "17 3 1 * *"        # 03:17 UTC on the 1st of every month
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Process at most N new projects (0 = all)"
+        default: "0"
+      dry_run:
+        description: "Only report the diff; write nothing, no API calls"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: aramis-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Today's date
+        id: date
+        run: echo "today=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Refresh ARAMIS data
+        env:
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+        run: |
+          ARGS="--summary refresh_summary.md"
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="--dry-run"; fi
+          if [ -n "${{ inputs.limit }}" ] && [ "${{ inputs.limit }}" != "0" ]; then
+            ARGS="$ARGS --limit ${{ inputs.limit }}"
+          fi
+          python pipeline/refresh.py $ARGS
+          if [ -f refresh_summary.md ]; then cat refresh_summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Open pull request
+        if: ${{ inputs.dry_run != true }}
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: refresh/aramis
+          delete-branch: true
+          commit-message: "ARAMIS data refresh ${{ steps.date.outputs.today }}"
+          title: "ARAMIS data refresh — ${{ steps.date.outputs.today }}"
+          body-path: refresh_summary.md
+          add-paths: |
+            aramis_scraped.csv.gz
+            data_meta.json
+            pipeline/company_aliases.csv
+          assignees: epdupont-oss

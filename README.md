@@ -50,10 +50,39 @@ Known limitations:
 | `aramis_scraped.csv.gz` | ARAMIS bulk export + scraped detail-page fields + LLM enrichment (47,618 rows) |
 | `cordis_enriched.csv.gz` | Swiss-involved Horizon Europe projects + enrichment (2,121 rows) |
 | `cordis_pipeline.py` | Builds `cordis_enriched.csv` from the CORDIS bulk ZIP: Swiss filter, project-page fetch, Mistral enrichment |
+| `data_meta.json` | Date of the last ARAMIS refresh and what it changed |
+| `pipeline/refresh.py` | Monthly incremental ARAMIS refresh (see below) |
+| `pipeline/enrich.py` | Mistral enrichment: English abstract, keywords, SATW tags, confidence |
+| `pipeline/scrape_aramis_scan.py` | ARAMIS detail-page scraper (partners, scientific lead, multilingual abstracts) |
+| `pipeline/clean_partners.py` | Splits partner person/company, dedupes company names, applies curated aliases |
+| `pipeline/company_aliases.csv` | Raw → canonical company names; edit it to fix a company name for good |
 
 The data files are gzipped and decompressed in the browser with `DecompressionStream`, so no build step is needed.
 
-Not yet in the repository: the ARAMIS enrichment script (`enrich.py`) and the ARAMIS detail-page scraper.
+## Monthly ARAMIS refresh
+
+A GitHub Action (`.github/workflows/refresh-aramis.yml`) runs on the 1st of each month:
+
+1. Downloads the ARAMIS bulk export and diffs it against `aramis_scraped.csv.gz`
+2. Scans ARAMIS project IDs above the highest known one to find detail pages for new projects, and re-scrapes changed ones
+3. Enriches new projects (and changed ones whose title or abstract changed) with Mistral
+4. Parses and canonicalises industry partners using `company_aliases.csv`
+5. Runs safety checks (export not truncated, enrichment failures under 20%, file under 25 MB, existing rows never removed)
+6. Opens a pull request with a summary. Nothing goes live until it is merged
+
+Months with no changes in ARAMIS produce no pull request. Run it by hand from the Actions tab ("Run workflow"), optionally with a dry run or a limit on new projects.
+
+Locally, from the repository root:
+
+```bash
+pip install -r pipeline/requirements.txt
+export MISTRAL_API_KEY=...
+python3 pipeline/refresh.py --dry-run          # show what changed, write nothing
+python3 pipeline/refresh.py --limit 20         # small real run
+python3 pipeline/refresh.py --summary out.md   # full run
+```
+
+Known limits: an ARAMIS programme ID sometimes holds several sub-projects but its detail page shows only one project number, so a few new sub-projects get no detail-page data. The dashboard does not depend on it.
 
 ## Running locally
 
