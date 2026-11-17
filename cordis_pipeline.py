@@ -37,7 +37,7 @@ DEFAULT_ZIP  = "cordis-HORIZONprojects-csv.zip"
 OUTPUT_CSV   = "cordis_enriched.csv"
 CHECKPOINT   = "cordis_enriched_checkpoint.csv"
 BASE_URL     = "https://cordis.europa.eu"
-MISTRAL_KEY  = "pvckWV1JQS1Ts9PrAmVOffjxb6VykwIt"
+MISTRAL_KEY  = os.environ.get("MISTRAL_API_KEY", "")
 MISTRAL_URL  = "https://api.mistral.ai/v1"
 MISTRAL_MDL  = "mistral-small-latest"
 MAX_WORKERS  = 6   # parallel HTML fetches
@@ -307,6 +307,8 @@ def call_mistral(title, objective):
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     args = parse_args()
+    if not args.no_llm and not MISTRAL_KEY:
+        sys.exit("Set MISTRAL_API_KEY (export MISTRAL_API_KEY=...) or run with --no-llm")
 
     # ── Step 1: Ensure ZIP ──────────────────────────────────────────────────
     zip_path = ensure_zip(args.zip)
