@@ -12,6 +12,9 @@ on:
       limit:
         description: "Process at most N new projects (0 = all)"
         default: "0"
+      scrape_minutes:
+        description: "Time budget for ARAMIS detail-page lookups, in minutes (max ~150)"
+        default: "60"
       dry_run:
         description: "Only report the diff; write nothing, no API calls"
         type: boolean
@@ -54,6 +57,7 @@ jobs:
           if [ -n "${{ inputs.limit }}" ] && [ "${{ inputs.limit }}" != "0" ]; then
             ARGS="$ARGS --limit ${{ inputs.limit }}"
           fi
+          ARGS="$ARGS --scrape-minutes ${{ inputs.scrape_minutes || '60' }}"
           python pipeline/refresh.py $ARGS
           if [ -f refresh_summary.md ]; then cat refresh_summary.md >> "$GITHUB_STEP_SUMMARY"; fi
 
@@ -70,4 +74,5 @@ jobs:
             aramis_scraped.csv.gz
             data_meta.json
             pipeline/company_aliases.csv
+            pipeline/scrape_pending.csv
           assignees: epdupont-oss

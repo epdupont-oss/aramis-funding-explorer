@@ -8,8 +8,8 @@ paying (in API calls and requests) for what actually changed.
 Steps
   1. Download the ARAMIS bulk export (or read --export PATH)
   2. Diff it against the current data file: new projects, changed projects, removed ones
-  3. Scrape ARAMIS detail pages for new projects (scan of project IDs above the
-     highest known one) and re-scrape changed projects whose ID is known
+  3. Look up ARAMIS detail pages for new projects via the search form, within a
+     time budget; projects not reached are retried next month (scrape_pending.csv)
   4. Enrich new projects, and changed projects whose title or abstract changed,
      with Mistral (abstract_en, keywords, satw_2025, confidence)
   5. Parse and canonicalise industry partners (clean_partners.py logic +
@@ -35,6 +35,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -71,11 +72,11 @@ ENRICH_COLS  = ["abstract_en", "keywords", "satw_2025", "confidence", "enrich_st
 
 HEADERS        = {"User-Agent": "Mozilla/5.0 (compatible; ARAMIS-explorer-refresh/1.0; "
                                 "+https://github.com/epdupont-oss/aramis-funding-explorer)"}
-SCAN_WORKERS   = 8
-SCAN_BATCH     = 200       # IDs fetched per round
-SCAN_STOP_GAP  = 1000      # stop after this many consecutive empty IDs (largest known gap: 459)
-SCAN_MAX_IDS   = 25000     # hard cap on IDs scanned in one run
+SCRAPE_WORKERS = 8
+SCRAPE_BUDGET_MIN = 60     # stop starting new lookups after this; the rest wait for next month
+MAX_ATTEMPTS   = 3         # give up on a project after this many "not found" searches
 ENRICH_WORKERS = 4
+PENDING_FILE   = HERE / "scrape_pending.csv"
 
 # Safety limits
 MAX_EXPORT_SHRINK   = 1000      # abort if the export has this many fewer rows than our data
@@ -148,15 +149,23 @@ def add_keys(df: pd.DataFrame, base_cols: list[str]) -> pd.DataFrame:
 
 # ── Scraping ARAMIS detail pages ──────────────────────────────────────────────
 
-_session = requests.Session()
-_session.headers.update(HEADERS)
+_local = threading.local()
+
+
+def _sess() -> requests.Session:
+    """One session per thread: the ARAMIS search form is ASP.NET with a ViewState."""
+    if not hasattr(_local, "s"):
+        _local.s = requests.Session()
+        _local.s.headers.update(HEADERS)
+        _local.vs = None
+    return _local.s
 
 
 def fetch(url: str) -> str | None:
     """HTML, or None for 404. Raises after retries on other errors."""
     for attempt in range(3):
         try:
-            r = _session.get(url, timeout=35)
+            r = _sess().get(url, timeout=60)
             if r.status_code == 404:
                 return None
             r.raise_for_status()
@@ -168,24 +177,41 @@ def fetch(url: str) -> str | None:
     return None
 
 
-def scrape_id(pid: int, with_texte: bool = True) -> dict | None:
-    """Detail fields for one ARAMIS ProjectID, or None if the ID is empty."""
-    html = fetch(f"{ARAMIS_URL}/Beteiligte/?ProjectID={pid}")
-    if html is None:
-        return None
-    projekt_nr, data = parse_beteiligte(html)
-    if not projekt_nr:
-        return None
-    data["project_id"] = str(pid)
-    data["Projektnummer"] = projekt_nr
-    if with_texte:
+def _viewstate(html: str) -> dict:
+    d = {}
+    for k in ("__VIEWSTATE", "__VIEWSTATEGENERATOR", "__EVENTVALIDATION"):
+        m = re.search(rf'name="{re.escape(k)}"[^>]*value="([^"]*)"', html)
+        d[k] = m.group(1) if m else ""
+    d["__LASTFOCUS"] = d["__EVENTTARGET"] = d["__EVENTARGUMENT"] = ""
+    return d
+
+
+def search_ids(projekt_nr: str) -> list[str]:
+    """ProjectIDs the ARAMIS search form returns for a project number (same request
+    as the June scrape_aramis.py). Several can come back; the caller verifies."""
+    s = _sess()
+    url = f"{ARAMIS_URL}/ProjektsucheAlt/"
+    for attempt in range(3):
         try:
-            t_html = fetch(f"{ARAMIS_URL}/Texte/?ProjectID={pid}")
-            if t_html:
-                data.update(parse_texte(t_html))
+            if _local.vs is None:
+                r = s.get(url, timeout=60)
+                r.raise_for_status()
+                _local.vs = _viewstate(r.text)
+            data = {**_local.vs,
+                    "ctl00$cphContent$txtProjektsuche": projekt_nr,
+                    "ctl00$cphContent$ddlForschungsstelle": "",
+                    "ctl00$cphContent$ddlResultate": "20",
+                    "ctl00$cphContent$cmdSearch": "Suche starten"}
+            r = s.post(url, data=data, timeout=60)
+            r.raise_for_status()
+            _local.vs = _viewstate(r.text)
+            return list(dict.fromkeys(re.findall(r"ProjectID=(\d+)", r.text)))
         except requests.RequestException:
-            pass  # abstracts are optional
-    return data
+            _local.vs = None
+            if attempt == 2:
+                raise
+            time.sleep(2 ** attempt)
+    return []
 
 
 def _page_text(html: str) -> str:
@@ -210,63 +236,79 @@ def match_number(page_nr: str, html: str, by_token: dict[str, list[str]]) -> str
     return max(hits, key=len) if hits else None
 
 
-def scan_new_ids(start_pid: int, wanted_nrs: set[str]) -> tuple[dict[str, dict], dict]:
-    """Scan ProjectIDs upward from start_pid until a long run of empty IDs.
-
-    Returns ({Projektnummer: scraped fields}, stats). Only projects whose number is in
-    wanted_nrs are kept; every non-empty ID counts as a hit for the stop rule.
-    """
-    by_token: dict[str, list[str]] = {}
-    for nr in wanted_nrs:
-        by_token.setdefault(nr.split()[0], []).append(nr)
-    found: dict[str, dict] = {}
-    stats = {"scanned": 0, "hits": 0, "errors": 0, "last_hit": start_pid - 1}
-    pid = start_pid
-
-    def one(p):
-        try:
-            html = fetch(f"{ARAMIS_URL}/Beteiligte/?ProjectID={p}")
-            if html is None:
-                return p, None, False
+def lookup_project(projekt_nr: str) -> tuple[str, dict | None]:
+    """('found', fields) / ('not_found', None) / ('error', None) for one project."""
+    try:
+        pids = search_ids(projekt_nr)
+        by_token = {projekt_nr.split()[0]: [projekt_nr]}
+        for pid in pids[:5]:
+            html = fetch(f"{ARAMIS_URL}/Beteiligte/?ProjectID={pid}")
+            if not html:
+                continue
             page_nr, data = parse_beteiligte(html)
-            if not page_nr:
-                return p, None, False
-            nr = match_number(page_nr, html, by_token)
-            data["project_id"] = str(p)
-            if nr:  # fetch abstracts only for projects we need
-                try:
-                    t_html = fetch(f"{ARAMIS_URL}/Texte/?ProjectID={p}")
-                    if t_html:
-                        data.update(parse_texte(t_html))
-                except requests.RequestException:
-                    pass
-            return p, (nr, data), False
-        except requests.RequestException:
-            return p, None, True
+            # Accept a verified match, or the only search result: programme IDs hold
+            # several sub-projects but show just one number on their page.
+            if match_number(page_nr, html, by_token) != projekt_nr and len(pids) > 1:
+                continue
+            data["project_id"] = pid
+            try:
+                t_html = fetch(f"{ARAMIS_URL}/Texte/?ProjectID={pid}")
+                if t_html:
+                    data.update(parse_texte(t_html))
+            except requests.RequestException:
+                pass  # abstracts are optional
+            return "found", data
+        return "not_found", None
+    except requests.RequestException:
+        return "error", None
 
-    with ThreadPoolExecutor(SCAN_WORKERS) as pool:
-        while pid - start_pid < SCAN_MAX_IDS:
-            batch = list(range(pid, pid + SCAN_BATCH))
-            pid += SCAN_BATCH
-            for p, hit, err in pool.map(one, batch):
-                stats["scanned"] += 1
-                if err:
-                    stats["errors"] += 1
-                    continue
-                if hit:
-                    stats["hits"] += 1
-                    stats["last_hit"] = max(stats["last_hit"], p)
-                    nr, data = hit
-                    if nr and nr not in found:
-                        found[nr] = data
-            if stats["scanned"] >= SCAN_BATCH and stats["errors"] / stats["scanned"] > 0.5:
-                raise Abort(f"ARAMIS detail pages failing ({stats['errors']} errors in "
-                            f"{stats['scanned']} requests); the site may be blocking us.")
-            log(f"  scanned up to ID {pid - 1:,}: {stats['hits']} projects seen, "
-                f"{len(found)} of {len(wanted_nrs)} wanted found, last hit {stats['last_hit']:,}")
-            if pid - 1 - stats["last_hit"] >= SCAN_STOP_GAP:
-                break
-    return found, stats
+
+def load_pending() -> dict[tuple, int]:
+    out = {}
+    if PENDING_FILE.exists():
+        with open(PENDING_FILE, encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                out[(r["Forschungsstelle"], r["Projektnummer"])] = int(r["attempts"] or 0)
+    return out
+
+
+def save_pending(pending: dict[tuple, int]) -> None:
+    with open(PENDING_FILE, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["Forschungsstelle", "Projektnummer", "attempts"])
+        for (fs, nr), a in sorted(pending.items()):
+            w.writerow([fs, nr, a])
+
+
+def scrape_rows(df: pd.DataFrame, todo: list, budget_s: float) -> dict:
+    """Look up detail pages for rows `todo`, in order, until the time budget runs out.
+    Returns per-row outcome so the caller can update the pending list."""
+    deadline = time.monotonic() + budget_s
+    outcome: dict = {}
+
+    def one(i):
+        if time.monotonic() > deadline:
+            return i, "skipped", None
+        return (i,) + lookup_project(norm(df.at[i, "Projektnummer"]))
+
+    t0 = time.monotonic()
+    with ThreadPoolExecutor(SCRAPE_WORKERS) as pool:
+        for n, (i, status, data) in enumerate(pool.map(one, todo), 1):
+            outcome[i] = status
+            if data:
+                for c in SCRAPE_COLS:
+                    df.at[i, c] = data.get(c, "")
+            if n % 25 == 0 or n == len(todo):
+                c = Counter(outcome.values())
+                log(f"  {n}/{len(todo)} looked up in {(time.monotonic() - t0) / 60:.0f} min: "
+                    f"{c['found']} found, {c['not_found']} not found, "
+                    f"{c['error']} errors, {c['skipped']} left for next run")
+    errs = sum(v == "error" for v in outcome.values())
+    tried = sum(v != "skipped" for v in outcome.values())
+    if tried >= 20 and errs / tried > 0.5:
+        raise Abort(f"ARAMIS detail lookups failing ({errs} errors in {tried}); "
+                    "the site may be down or blocking us.")
+    return outcome
 
 
 # ── Partner cleaning (reuses clean_partners.py) ───────────────────────────────
@@ -452,6 +494,8 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0, help="Process at most N new projects (testing)")
     ap.add_argument("--no-llm", action="store_true", help="Skip Mistral (new rows get fallback values)")
     ap.add_argument("--no-scrape", action="store_true", help="Skip ARAMIS detail pages")
+    ap.add_argument("--scrape-minutes", type=float, default=SCRAPE_BUDGET_MIN,
+                    help="Time budget for ARAMIS detail-page lookups (default %(default)s)")
     ap.add_argument("--no-uid", action="store_true", help="Skip zefix UID name lookups")
     ap.add_argument("--allow-large", action="store_true",
                     help=f"Allow more than {DEFAULT_MAX_NEW} new projects in one run")
@@ -523,7 +567,7 @@ def main() -> int:
         old, new = examples[c][1], examples[c][2]
         log(f"  {c:<26} {n:>5} changed   e.g. {examples[c][0]}: {old!r} -> {new!r}")
 
-    if not len(new_rows) and not changed_idx:
+    if not len(new_rows) and not changed_idx and (args.no_scrape or not load_pending()):
         log("Nothing new or changed in ARAMIS; data left as is.")
         return 0
 
@@ -540,35 +584,39 @@ def main() -> int:
     df = pd.concat([cur, new_df])
     new_idx = list(new_df.index)
 
-    # 3 ── Scrape detail pages
-    scraped_new = 0
+    # 3 ── Scrape detail pages (new projects + ones carried over from earlier runs)
+    scraped_idx: list = []
     if not args.no_scrape:
-        pids = pd.to_numeric(cur["project_id"], errors="coerce")
-        start = int(pids.max()) + 1 if pids.notna().any() else 1
-        wanted = {norm(df.at[i, "Projektnummer"]) for i in new_idx}
-        if wanted:
-            log(f"Scanning ARAMIS project IDs from {start:,} for {len(wanted):,} new projects …")
-            found, stats = scan_new_ids(start, wanted)
-            for i in new_idx:
-                data = found.get(norm(df.at[i, "Projektnummer"]))
-                if data:
-                    for c in SCRAPE_COLS:
-                        df.at[i, c] = data.get(c, "")
-                    scraped_new += 1
-            if scraped_new < len(new_idx):
-                warnings.append(f"{len(new_idx) - scraped_new} new projects have no ARAMIS "
-                                "detail page yet (no partner data); normal for very new entries.")
-        rescrape = [i for i in changed_idx if norm(df.at[i, "project_id"])]
-        if rescrape:
-            log(f"Re-scraping {len(rescrape):,} changed projects …")
-            with ThreadPoolExecutor(SCAN_WORKERS) as pool:
-                results = pool.map(lambda i: (i, _safe_scrape(int(df.at[i, "project_id"]))),
-                                   rescrape)
-                for i, data in results:
-                    if data:
-                        for c in SCRAPE_COLS:
-                            df.at[i, c] = data.get(c, df.at[i, c])
+        pending = load_pending()
+        key_of = lambda i: (norm(df.at[i, "Forschungsstelle"]), norm(df.at[i, "Projektnummer"]))
+        carry = [i for i in df.index[:len(cur)]
+                 if key_of(i) in pending and pending[key_of(i)] < MAX_ATTEMPTS
+                 and not norm(df.at[i, "project_id"])]
+        # Newest first, so if the budget runs out it is old back-filled projects that wait
+        by_start = lambda i: norm(df.at[i, "Projektstart"])
+        todo = sorted(new_idx, key=by_start, reverse=True) + sorted(carry, key=by_start, reverse=True)
+        if todo:
+            log(f"Looking up ARAMIS detail pages for {len(new_idx):,} new and "
+                f"{len(carry):,} carried-over projects (budget {args.scrape_minutes:.0f} min) …")
+            outcome = scrape_rows(df, todo, args.scrape_minutes * 60)
+            for i, st in outcome.items():
+                k = key_of(i)
+                if st == "found":
+                    pending.pop(k, None)
+                    scraped_idx.append(i)
+                elif st == "not_found":
+                    pending[k] = pending.get(k, 0) + 1
+                else:                      # skipped or error: try again next run
+                    pending.setdefault(k, pending.get(k, 0))
+            pending = {k: a for k, a in pending.items() if a < MAX_ATTEMPTS}
+            save_pending(pending)
+            left = sum(st in ("skipped", "error") for st in outcome.values())
+            if left:
+                warnings.append(f"{left} projects not looked up yet (ARAMIS is slow from GitHub); "
+                                "they will be retried next month.")
+        scraped_new = sum(1 for i in scraped_idx if i in set(new_idx))
     else:
+        scraped_new = 0
         warnings.append("Detail-page scraping skipped (--no-scrape).")
 
     # 4 ── Enrich
@@ -596,7 +644,7 @@ def main() -> int:
             warnings.append(f"{enrich_stats['failed']} enrichments failed and kept fallback values.")
 
     # 5 ── Partners
-    partner_idx = [i for i in new_idx + changed_idx if norm(df.at[i, "wirtschaftspartner"])]
+    partner_idx = [i for i in scraped_idx if norm(df.at[i, "wirtschaftspartner"])]
     partner_stats = {"new_companies": []}
     if partner_idx:
         log(f"Cleaning industry partners for {len(partner_idx):,} projects …")
@@ -644,13 +692,6 @@ def main() -> int:
     for w in warnings:
         log(f"WARNING: {w}")
     return 0
-
-
-def _safe_scrape(pid: int) -> dict | None:
-    try:
-        return scrape_id(pid)
-    except requests.RequestException:
-        return None
 
 
 if __name__ == "__main__":

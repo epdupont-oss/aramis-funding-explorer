@@ -64,13 +64,13 @@ The data files are gzipped and decompressed in the browser with `DecompressionSt
 A GitHub Action (`.github/workflows/refresh-aramis.yml`) runs on the 1st of each month:
 
 1. Downloads the ARAMIS bulk export and diffs it against `aramis_scraped.csv.gz`
-2. Scans ARAMIS project IDs above the highest known one to find detail pages for new projects, and re-scrapes changed ones
+2. Looks up each new project's ARAMIS detail page through the search form, newest first, within a time budget (60 min by default). ARAMIS is slow from GitHub's servers, so projects not reached are kept in `pipeline/scrape_pending.csv` and retried the next month (up to 3 times)
 3. Enriches new projects (and changed ones whose title or abstract changed) with Mistral
 4. Parses and canonicalises industry partners using `company_aliases.csv`
 5. Runs safety checks (export not truncated, enrichment failures under 20%, file under 25 MB, existing rows never removed)
 6. Opens a pull request with a summary. Nothing goes live until it is merged
 
-Months with no changes in ARAMIS produce no pull request. Run it by hand from the Actions tab ("Run workflow"), optionally with a dry run or a limit on new projects.
+Months with no changes in ARAMIS produce no pull request. Run it by hand from the Actions tab ("Run workflow"), optionally with a dry run, a limit on new projects, or a longer scraping budget (up to about 150 minutes within the 3-hour job limit).
 
 Locally, from the repository root:
 
@@ -82,7 +82,7 @@ python3 pipeline/refresh.py --limit 20         # small real run
 python3 pipeline/refresh.py --summary out.md   # full run
 ```
 
-Known limits: an ARAMIS programme ID sometimes holds several sub-projects but its detail page shows only one project number, so a few new sub-projects get no detail-page data. The dashboard does not depend on it.
+Known limits: ARAMIS answers slowly from GitHub (tens of seconds per page), so a large backlog can take a few monthly runs to get partner data; enrichment and the PR are never held up by it. Changed projects are not re-scraped, since their changes (dates, status, contacts) come from the export itself.
 
 ## Running locally
 
