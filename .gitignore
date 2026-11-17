@@ -2,3 +2,5 @@
 .claude/
 serve.py
 claude_code_prompt_v2.md
+__pycache__/
+*.pyc
