@@ -413,6 +413,9 @@ def build_summary(info: dict, new_df: pd.DataFrame) -> str:
         f"| Data file size | {info['gz_mb']:.1f} MB (limit 25 MB) |",
         "",
     ]
+    if info.get("changed_fields"):
+        L += ["### What changed in updated projects", ""]
+        L += [f"- {c}: {n:,}" for c, n in info["changed_fields"]] + [""]
     if info.get("warnings"):
         L += ["### ⚠️ Warnings", ""] + [f"- {w}" for w in info["warnings"]] + [""]
     if len(new_df):
@@ -488,11 +491,18 @@ def main() -> int:
     removed = len(set(cur["_key"]) - exp_keys)
 
     changed_idx, text_changed_idx = [], []
+    changed_fields: Counter = Counter()
+    examples: dict[str, tuple] = {}
     both = exp[~new_mask]
     for _, e in both.iterrows():
         ci = cur_by_key[e["_key"]]
         if e["_fp"] != cur.at[ci, "_fp"]:
             changed_idx.append(ci)
+            for c in base_cols:
+                if c not in KEY_COLS and norm_col(c, e[c]) != norm_col(c, cur.at[ci, c]):
+                    changed_fields[c] += 1
+                    examples.setdefault(c, (e["Projektnummer"], norm(cur.at[ci, c])[:60],
+                                            norm(e[c])[:60]))
             if e["_text"] != cur.at[ci, "_text"]:
                 text_changed_idx.append(ci)
             for c in base_cols:            # take the export's values for base columns
@@ -508,6 +518,10 @@ def main() -> int:
     if len(new_rows) > DEFAULT_MAX_NEW and not args.allow_large:
         raise Abort(f"{len(new_rows):,} new projects is unusually many; "
                     "re-run with --allow-large if this is expected.")
+
+    for c, n in changed_fields.most_common():
+        old, new = examples[c][1], examples[c][2]
+        log(f"  {c:<26} {n:>5} changed   e.g. {examples[c][0]}: {old!r} -> {new!r}")
 
     if not len(new_rows) and not changed_idx:
         log("Nothing new or changed in ARAMIS; data left as is.")
@@ -622,6 +636,7 @@ def main() -> int:
             "enrich_failed": enrich_stats["failed"],
             "gz_mb": len(gz_bytes) / 1e6, "warnings": warnings,
             "new_companies": partner_stats.get("new_companies", []),
+            "changed_fields": changed_fields.most_common(),
         }
         Path(args.summary).write_text(build_summary(info, df.loc[new_idx, out_cols]),
                                       encoding="utf-8")
