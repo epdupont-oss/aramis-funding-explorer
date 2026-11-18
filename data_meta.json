@@ -1,0 +1,11 @@
+{
+  "data_as_of": "2026-11-18",
+  "source_export": "https://datenausgabe.aramis.admin.ch/full_export.csv",
+  "projects": 47638,
+  "last_refresh": {
+    "new": 20,
+    "updated": 1504,
+    "reenriched": 153,
+    "removed_from_export": 52
+  }
+}
